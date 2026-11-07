@@ -214,10 +214,28 @@ function hud.lightsOn(race)
   return math.max(0, math.min(5, math.floor(race.timer / (race.startDelay / 6))))
 end
 
+-- "90" and a degree sign. The font has none, so it's a small ring.
+local function drawDegrees(degrees, x, y, size, color, align, width)
+  local text = tostring(degrees)
+  local font = ui.font(size)
+  local tw = font:getWidth(text) + size * 0.7
+  if align == "center" then x = x + (width - tw) / 2 end
+  ui.text(text, x, y, size, color)
+  love.graphics.setLineWidth(math.max(1, size * 0.14))
+  love.graphics.circle("line", x + font:getWidth(text) + size * 0.32, y + size * 0.2, size * 0.2)
+end
+
+-- How a corner is called: by its angle, and a hairpin for anything near 180.
+local function cornerCall(corner)
+  local side = corner.direction > 0 and "RIGHT" or "LEFT"
+  if corner.degrees >= 150 then return side .. " HAIRPIN" end
+  return side
+end
+
 local function drawPaceNote(view, sw, s)
   local pace = view.pace
   if not pace then return end
-  local w, h = 58 * s, 26 * s
+  local w, h = (pace.degrees and 92 or 58) * s, 26 * s
   local x, y = (sw - w) / 2, 8 * s
   ui.panel(x, y, w, h, 0.8)
 
@@ -242,6 +260,46 @@ local function drawPaceNote(view, sw, s)
 
   ui.text(tostring(pace.grade), x + 27 * s, y + 5 * s, 8 * s, colors.paint)
   ui.text(pace.brake and "BRAKE" or "LIFT", x + 27 * s, y + 16 * s, 5 * s, c)
+  if pace.degrees then
+    love.graphics.setColor(colors.muted)
+    love.graphics.rectangle("fill", x + 57 * s, y + 5 * s, 1 * s, 16 * s)
+    drawDegrees(pace.degrees, x + 61 * s, y + 6 * s, 7 * s, colors.paint)
+    ui.text(pace.degrees >= 150 and "HAIRPIN" or "TURN", x + 61 * s, y + 16 * s, 4 * s, colors.muted)
+  end
+end
+
+-- The 200 and 100 boards before a braking zone: big, and on a white board like the
+-- real ones by the track, with the corner they're for under them. The 100 board is
+-- larger and flashes red.
+local function drawBrakeBoard(view, sw, sh, s)
+  local board = view.board
+  if not board then return end
+  local near = board.metres == 100
+  local k = near and 1.25 or 1
+  local w, h = 62 * s * k, 30 * s * k
+  local x, y = (sw - w) / 2, 40 * s
+  local flash = near and math.floor(love.timer.getTime() * 6) % 2 == 0
+  local edge = flash and colors.marshal or colors.kerb
+  love.graphics.setColor(colors.asphaltDeep[1], colors.asphaltDeep[2], colors.asphaltDeep[3], 0.85)
+  love.graphics.rectangle("fill", x - 3 * s, y - 3 * s, w + 6 * s, h + 6 * s)
+  love.graphics.setColor(edge)
+  love.graphics.rectangle("fill", x, y, w, h)
+  love.graphics.setColor(colors.paint)
+  love.graphics.rectangle("fill", x + 3 * s, y + 3 * s, w - 6 * s, h - 6 * s)
+  ui.text(tostring(board.metres), x, y + (h - 16 * s * k) / 2, 16 * s * k, colors.black, "center", w)
+  local corner = board.corner
+  if corner then
+    local ty = y + h + 6 * s
+    local call = cornerCall(corner)
+    local size = 6 * s * k
+    local font = ui.font(size)
+    local degreeText = tostring(corner.degrees)
+    local total = font:getWidth(call .. " ") + font:getWidth(degreeText) + size * 0.7
+    local tx = (sw - total) / 2
+    ui.panel(tx - 5 * s, ty - 4 * s, total + 10 * s, size + 8 * s, 0.8)
+    ui.text(call .. " ", tx, ty, size, colors.paint)
+    drawDegrees(corner.degrees, tx + font:getWidth(call .. " "), ty, size, colors.marshal)
+  end
 end
 
 local function drawToast(view, sw, sh, s)
@@ -249,7 +307,8 @@ local function drawToast(view, sw, sh, s)
   if not t or t.time <= 0 then return end
   local alpha = math.min(1, t.time * 3)
   local c = t.color or colors.paint
-  local y = sh * 0.26
+  -- Below a brake board and its corner call, when one is up.
+  local y = math.max(sh * 0.26, view.board and 112 * s or 0)
   local size = t.size or 8 * s
   local width = ui.font(size):getWidth(t.text) + 16 * s
   local panel = colors.asphaltDeep
@@ -352,6 +411,7 @@ local function drawDriving(sw, sh, race, ctx, view, s)
   drawDash(car, sw, sh, s)
   drawSlipstream(car, sw, sh, s)
   drawPaceNote(view, sw, s)
+  drawBrakeBoard(view, sw, sh, s)
   drawStartLights(race, sw, sh, s)
   drawToast(view, sw, sh, s)
   drawWrongWay(car, sw, sh, s)
@@ -454,7 +514,10 @@ function hud.drawView(sw, sh, race, ctx, view, fullW, fullH)
   drawDash(car, sw, sh, s, left)
   drawSlipstream(car, sw, sh, s, left)
   -- The drift score has the top middle in freestyle.
-  if race.mode ~= "freestyle" then drawPaceNote(view, sw, s) end
+  if race.mode ~= "freestyle" then
+    drawPaceNote(view, sw, s)
+    drawBrakeBoard(view, sw, sh, s)
+  end
   drawStartLights(race, sw, sh, s)
   drawToast(view, sw, sh, s)
   drawWrongWay(car, sw, sh, s)

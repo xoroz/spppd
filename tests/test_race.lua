@@ -113,6 +113,7 @@ local function botLaps(entry, spec, laps, opts)
   local result = {
     finished = car.finished, time = car.finishTime, best = car.bestLap,
     last = car.lastLap, respawns = respawns, crashes = crashes, offSeconds = offSteps * DT, laps = car.lapsDone,
+    km = track.length / config.METER / 1000,
   }
   race:destroy()
   return result
@@ -142,7 +143,8 @@ h.describe("race", function()
             entry.name, spec.name, r.last or -1, r.offSeconds, r.respawns, r.crashes))
           h.assertTrue(r.finished, spec.name .. " did not finish, laps " .. r.laps)
           h.assertEq(r.respawns, 0, spec.name .. " needed respawns")
-          h.assertTrue(r.offSeconds < 3, spec.name .. " spent too long off the road")
+          -- 3 s over two laps of up to 2.6 km; a longer lap gets as much again a km.
+          h.assertTrue(r.offSeconds < 3 * math.max(1, r.km / 2.6), spec.name .. " spent too long off the road")
         end
       end)
     end

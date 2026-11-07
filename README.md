@@ -11,7 +11,8 @@ Its website, with downloads, the changelog and a blog, is
 
 Race the AI, set time trials, play in freestyle's lot of cones and containers or
 cruise any circuit with no clock, build your own tracks, or race up to three
-friends online. There are 12 cars, 10 tracks and four times of day.
+friends online. There are 16 cars, 12 tracks (two of them real circuits, Mugello and Barcelona) and four
+times of day. It also runs in a web browser.
 
 ## Controls
 
@@ -67,7 +68,11 @@ phone, BUTTON LIST shows the touch controls.
 - **Slipstream**: sit close behind a car at speed for less drag, then pull out and
   slingshot past.
 - **Pace notes** at the top of the screen show the next corner, how tight it is (1 is a
-  hairpin, 4 a fast kink) and when to brake.
+  hairpin, 4 a fast kink), how far it turns (90°, a 180° hairpin) and when to brake.
+- **Brake boards** come up big before each braking zone, 200 m and then 100 m out, with
+  the corner they're for. BRAKE BOARDS in SETTINGS turns them off.
+- **QUICK RACE**, first in the main menu, starts the race you set up last in one press.
+  Race setup opens on START, so RACE then START works as well.
 - **Radio**: freestyle plays MP3, OGG, FLAC or WAV files. Drop them on the game window,
   or use MUSIC FOLDER in freestyle setup. Not on phones.
 
@@ -94,6 +99,11 @@ off. Sport handling has less grip, so most cars are slower off the line there.
 Up to 100 km/h every car is limited by its tyres, not its engine, so all-wheel drive and
 weight over the driven wheels count most. Power shows after that: OPEN WHEELER is only
 mid-pack to 100 km/h, but with the best power to weight here it's among the quickest to 200.
+Four more came after these: GT RACER (a winged endurance coupe, front V8), RALLY KING
+(a four-wheel-drive turbo hatch that shrugs off gravel), PROTOTYPE (a light 24-hour car
+with big downforce) and DRIFT KING (a big-turbo rear-drive saloon on hard tyres, with
+extra steering lock).
+
 Raw numbers aren't the whole story: corners decide most laps, and TOFU RUNNER and 4WD
 MONSTER corner harder than MUSCLE MONSTER or BIG BULL.
 
@@ -157,6 +167,12 @@ If you turn them on, tell your players, as `PRIVACY.md` does for the official se
 `-status :8081` serves how many drivers are online and races running as JSON at
 `/api/status`, which <https://spppd.xyz/status/> shows for the official server.
 
+**In a browser** (`./build.sh`, then serve `dist/web/` over HTTP, e.g.
+`python3 -m http.server -d dist/web 8020`) the game is the desktop one without online
+play, the radio or QUIT. On a phone's browser it plays like the phone build, and Auto Gas
+starts off there, so GAS and BRAKE buttons sit beside the stick. `update.sh` is the
+server's cron hook: it rebuilds and publishes `dist/web/` when `master` moves.
+
 `make deploy-relay` deploys the official server, and `make check-relay` checks it answers
 without showing in its stats. See `ARCHITECTURE.md`.
 
@@ -168,6 +184,7 @@ without showing in its stats. See `ARCHITECTURE.md`.
     make test-online          # clients through a real relay
     make test-online-visual   # the real game online, against bots
     make zip win64 win32      # release builds
+    ./build.sh                # the .love, then the browser build in dist/web/ (love.js, needs npx)
     make apk                  # a test build for Android
     make site                 # the website, after the release builds
     make deploy-site          # the website, deployed to spppd.xyz

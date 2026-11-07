@@ -81,7 +81,7 @@ local function splitSetup()
   menu.go("setup")
   -- Whose rows show: SPPPD_DRIVER=2 for P2's.
   menu.driver = tonumber(os.getenv("SPPPD_DRIVER")) or 1
-  ui.focus.setup = 2
+  ui.focus.setup = 3
 end
 
 local SCENES = {
@@ -104,7 +104,7 @@ local SCENES = {
     menu.enter()
     settings.mode = "freestyle"
     menu.go("setup")
-    ui.focus.setup = 7
+    ui.focus.setup = 8
   end,
   -- Any one car, by id: SPPPD_CAR=cyber.
   car = function()
@@ -122,6 +122,12 @@ local SCENES = {
     autopilot()
   end,
   marina = function() race({ track = "harbour", time = "day" }) autopilot() end,
+  -- The first 200 or 100 brake board on any track: SPPPD_TRACK=mugello, and
+  -- SPPPD_BOARD=100 for the 100 board. Taken when it shows, not at a frame count.
+  boards = function()
+    race({ track = os.getenv("SPPPD_TRACK") or "harbour", time = "day", mode = "trial", opponents = 0 })
+    autopilot()
+  end,
   -- Gas and brake held on the lot: SPPPD_CAR=hot_hatch for a front-drive car,
   -- SPPPD_STEER=1 to swing it round, SPPPD_LIGHTS=1 to stay at the lights.
   burnout = function()
@@ -283,6 +289,11 @@ function visual.start(args)
       r.player.distance = r.track.length * r.laps + 1
     end
     if PAUSED[scene] and frame == waitFrames - 2 then rm.setPaused(true) end
+    if scene == "boards" and frame > 90 and frame < waitFrames then
+      local board = rm.views()[1].board
+      local want = tonumber(os.getenv("SPPPD_BOARD") or "200")
+      if board and board.metres == want then waitFrames = frame + 1 end
+    end
   end
   love.draw = function()
     draw()

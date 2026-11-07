@@ -1014,9 +1014,23 @@ local function engineLoops(voice)
   return engine
 end
 
+-- pcall that lets f yield to whoever resumed the caller. LuaJIT yields across a
+-- pcall; the browser build's Lua 5.1 can't, so f runs in a coroutine of its own
+-- and each of its yields is passed on.
+local function pcallYielding(f)
+  if jit or not coroutine.running() then return pcall(f) end
+  local co = coroutine.create(f)
+  while true do
+    local ok, err = coroutine.resume(co)
+    if not ok then return false, err end
+    if coroutine.status(co) == "dead" then return true end
+    coroutine.yield()
+  end
+end
+
 function audio.load()
   if audio.ready or not love.audio then return end
-  local ok, err = pcall(function()
+  local ok, err = pcallYielding(function()
     cache.open({ "src/audio.lua", "src/lib/sfxr.lua" })
     audio.scrub = loop("scrub", audio.scrubData)
     audio.squeal = loop("squeal", audio.squealData)

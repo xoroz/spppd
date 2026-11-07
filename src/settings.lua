@@ -15,13 +15,15 @@ local settings = {
   quality = "high",
   minimap = true,
   paceNotes = true,
+  brakeBoards = true,  -- 200 and 100 m before a braking zone, with the pace notes
   showFps = false,
   fullscreen = false,
   touch = "auto",
   touchSteer = "stick",  -- or "buttons"
   touchSize = "medium",  -- "small", "medium" or "large"
   touchOpacity = 1,
-  autoGas = true,
+  -- The browser build shows GAS and BRAKE buttons on a phone instead.
+  autoGas = not (love.system and love.system.getOS() == "Web"),
   vibration = true,
   keys = {},         -- changed keys and pad buttons, see input.setBindings
   padButtons = {},

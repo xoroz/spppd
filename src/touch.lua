@@ -70,9 +70,9 @@ end
 -- and the horn are up top, where a thumb won't hit them by accident.
 --
 -- With buttons, brake sits above drift, clear of the dash's row, and the left
--- thumb rocks between two arrows. Without auto gas, gas and brake share the bottom
--- row like a pair of pedals, drift goes up where brake was, and boost moves out
--- beside it.
+-- thumb rocks between two arrows. Without auto gas, with the stick or buttons,
+-- gas and brake share the bottom row like a pair of pedals, drift goes up where
+-- brake was, and boost moves out beside it.
 --
 -- With the manual box, DOWN sits on the left above the steering and UP on the
 -- right above the cluster, like paddles behind a wheel.
@@ -102,15 +102,15 @@ function touch.layout(sw, sh)
     },
   }
   local list = layout.buttons
+  if not settings.autoGas then
+    list[1] = at("boost", "BOOST", 6, 196, 96, 22)
+    list[2] = at("handbrake", "DRIFT", 7, 134, 104, 26)
+    list[#list + 1] = at("brake", "BRAKE", 7, 124, 40, 26)
+    list[#list + 1] = at("throttle", "GAS", 8, 52, 52, 34)
+  elseif touch.buttons() then
+    list[#list + 1] = at("brake", "BRAKE", 7, 134, 104, 26)
+  end
   if touch.buttons() then
-    if settings.autoGas then
-      list[#list + 1] = at("brake", "BRAKE", 7, 134, 104, 26)
-    else
-      list[1] = at("boost", "BOOST", 6, 196, 96, 22)
-      list[2] = at("handbrake", "DRIFT", 7, 134, 104, 26)
-      list[#list + 1] = at("brake", "BRAKE", 7, 124, 40, 26)
-      list[#list + 1] = at("throttle", "GAS", 8, 52, 52, 34)
-    end
     local grow = math.min(k, ARROW_MAX)
     local left = { action = "steerLeft", shape = "left", x = 42 * s, y = sh - 46 * s, r = 32 * s * grow }
     local right = { action = "steerRight", shape = "right", x = 116 * s, y = sh - 46 * s, r = 32 * s * grow }

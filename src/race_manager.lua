@@ -513,11 +513,57 @@ local function updateDrift(view, dt)
   end
 end
 
+-- The corner that the slowest point at sample i belongs to: its own, or the
+-- nearest one within a few samples, as the racing line can slow just outside it.
+local function cornerNear(track, i)
+  local _, at = track:corners()
+  local n = track.count
+  for d = 0, 12 do
+    local c = at[(i + d - 1) % n + 1] or at[(i - d - 1) % n + 1]
+    if c then return c end
+  end
+  return nil
+end
+
+-- Marker boards before a braking zone, as at a real circuit: 200, then 100, in
+-- metres to where braking starts for the next corner that needs it. The zone is
+-- where the pace profile starts falling towards that corner's slowest point.
+local BOARD_AHEAD = 650  -- m scanned for it
+local BOARD_FIRST = 200  -- m, the first board
+
+local function updateBoard(view, track, profile, index, speed)
+  view.board = nil
+  if not settings.brakeBoards then return end
+  local n = track.count
+  local step = track.length / n / config.METER
+  local function at(k) return profile[(index + k - 1) % n + 1] end
+  local low, apex = math.huge, nil
+  for k = 1, math.floor(BOARD_AHEAD / step) do
+    local v = at(k)
+    if v < low then
+      low, apex = v, k
+    elseif v > low + 2 then
+      -- Past the bottom of a dip. Only one that means braking counts.
+      if low < speed * 0.85 then break end
+      low, apex = v, k
+    end
+  end
+  if not apex or low >= speed * 0.85 then return end
+  local start = apex
+  while start > 1 and at(start - 1) > at(start) + 0.01 do start = start - 1 end
+  local distance = (start - 1) * step
+  if distance <= 0 or distance > BOARD_FIRST then return end
+  view.board = {
+    metres = distance > 100 and 200 or 100,
+    corner = cornerNear(track, (index + apex - 1) % n + 1),
+  }
+end
+
 -- The call a co-driver would make: what the next corner is, and when to brake.
 local function updatePaceNote(view)
   local race = session.race
   local car = view.car
-  view.pace = nil
+  view.pace, view.board = nil, nil
   if not settings.paceNotes or not race.track or race.phase ~= "racing" or car.finished then return end
   if not view.paceProfile then
     local spec = car.spec
@@ -535,6 +581,7 @@ local function updatePaceNote(view)
   local speed = car:getSpeed()
   if speed < 12 then return end
   local index = car.trackIndex or 1
+  updateBoard(view, track, profile, index, speed)
   local reach = (speed * speed / 14 + 45) / config.SAMPLE_SPACING
 
   local slowest, at = speed, nil
@@ -544,8 +591,11 @@ local function updatePaceNote(view)
   end
   if not at or slowest > speed * 0.9 then return end
 
+  local corner = cornerNear(track, at)
   view.pace = {
     direction = samples[at].lineK > 0 and 1 or -1,
+    -- How far it turns, e.g. 90 or a 180 hairpin. Nil for a kink.
+    degrees = corner and corner.degrees,
     -- Tightness runs 1 (hairpin) to 4 (fast kink), like a rally note.
     grade = slowest < 18 and 1 or (slowest < 28 and 2 or (slowest < 40 and 3 or 4)),
     brake = profile[index] < speed - 1,

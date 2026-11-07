@@ -559,6 +559,10 @@ end.
 | 10 | QUAD TURBO | hyper | AWD | 1950 | 683 | 1250 | 7 | 328 | 16, 4 turbos | 190 |
 | 11 | BAJA BEAST | truck | AWD | 2900 | 466 | 880 | 8 | 415 | 8, supercharged | 210 |
 | 12 | OPEN WHEELER | formula | RWD | 920 | 502 | 470 | 8 | 337 | 6 race, 1 turbo | 120 |
+| 13 | GT RACER | coupe | RWD | 1300 | 355 | 520 | 6 | | 8 | 140 |
+| 14 | RALLY KING | hatch | AWD | 1250 | 301 | 470 | 6 | | 4, 1 turbo | 120 |
+| 15 | PROTOTYPE | hyper | RWD | 1030 | 454 | 560 | 7 | | 6 race, 2 turbos | 130 |
+| 16 | DRIFT KING | sedan | RWD | 1350 | 369 | 600 | 6 | | 6, 1 turbo | 150 |
 
 "Gearing limit" is redline in top gear. Drag stops most cars before that, and BAJA
 BEAST well before it. `cylinders`, `turbos`, `supercharged` and `raceExhaust` change
@@ -691,6 +695,16 @@ out-in-out shape comes from this and isn't drawn by hand.
 | ARDENNES | meadow | 290 nodes | 2.61 km | 1043 | 20.8 m | 12 m |
 | TOUGE | meadow | 253 nodes | 2.27 km | 910 | 12.5 m | 9 m |
 | OASIS | desert | 269 nodes | 2.42 km | 967 | 22.7 m | 12 m |
+| MUGELLO | meadow | 583 nodes | 3.14 km | 1255 | 21.8 m | 12 m |
+| BARCELONA | desert | 518 nodes | 2.78 km | 1114 | 21.6 m | 12 m |
+
+MUGELLO and BARCELONA are the real circuits, traced from OpenStreetMap's centre lines
+(relations 8487163 and 284540), resampled every 9 m and built at 60% scale (`scale =
+1.8`) with a 22 m road. At full size their long straights and fast bends took the AI
+off the road. They also set three things the other tracks leave at their defaults,
+which `Track.new` keeps for `AI.new`: `aiBrake` (the share of grip the AI plans to
+brake on, 0.72 by default), `aiGrip` (a factor on the grip it plans to corner on) and
+`lineMargin` (metres the racing line keeps from each edge, 2 by default).
 
 `Track.new` takes 6 to 31 ms with the JIT on and 37 to 218 ms with it off, on this
 desktop. The Galaxy A04 runs with the JIT off.
@@ -937,7 +951,15 @@ drive from the editor keeps its best lap in memory only.
 
 `updatePaceNote` scans ahead for the slowest point on a speed profile, within
 `speed²/14 + 45` metres. If that's below 90% of current speed it shows a direction, a
-grade (1 under 18 m/s, 2 under 28, 3 under 40, else 4) and whether to brake now.
+grade (1 under 18 m/s, 2 under 28, 3 under 40, else 4), whether to brake now, and how
+far the corner turns, from `Track:corners`: runs of the racing line tighter than a
+150 m radius, joined across up to 10 m of straight when they turn the same way, and
+summed to degrees rounded to 15. Anything under 25° is a kink.
+
+`updateBoard` looks 650 m ahead for the first dip in the profile below 85% of current
+speed, walks back to where the profile starts falling towards it, and sets
+`view.board` to 200 or 100 while that point is 200 or 100 m away. The HUD draws it big
+under the pace note, with the corner's call, and moves toasts below it.
 
 ---
 
@@ -2010,6 +2032,7 @@ positions, hence "new cars go on the end".
 | `make win64 win32` | Windows zips. To this project, these are what a release means |
 | `make apk` | Test APK, self-signed, application id `xyz.hblabs.spppd` |
 | `make apk-perf` | APK that runs `--perf` at launch |
+| `./build.sh` | The `.love`, then `dist/web/`, the browser build (love.js 11.4.1 via npx, compatibility mode). `--no-web` stops after the `.love` |
 | `make all` | `clean` first, which wipes `dist/`, including `love-android`. Releases use `make zip win64 win32` |
 
 The first `make apk` compiles LÖVE 11.5 for Android (about 1 GB). After that only the
@@ -2017,6 +2040,24 @@ The first `make apk` compiles LÖVE 11.5 for Android (about 1 GB). After that on
 
 The version lives in `config.lua`, and `Makefile` and `android/apk.sh` read it from
 there. There are no tags and no CI.
+
+### The browser build
+
+`build.sh` patches the web copy of `conf.lua` to LÖVE 11.4 and injects
+`web/bridge.js` before `game.js`. love.js runs PUC Lua 5.1 on WebGL 1, so:
+
+- There's no `bit` library; `sfxr.lua` falls back to arithmetic for the two calls it uses.
+- Nothing yields across a `pcall`; `audio.load` runs its body in a coroutine of its
+  own and passes each yield on.
+- A texture whose sides aren't powers of two can't have mipmaps
+  (`textures.canMipmap`).
+- There are no sockets: ONLINE is hidden and `network.connect` fails politely.
+
+`src/web.lua` (`web.on`) prints `SPPPD_WEB|<save dir>|hello`, and the bridge writes
+`viewport.txt` (`width height phone`) into the save folder; the window follows it, and
+`phone` turns on `ui.mobile` and the touch controls. QUIT is hidden in a browser and Auto
+Gas defaults off there. `update.sh` hands the server's cron to `~/scripts/app-update.sh`
+with `BUILD=./build.sh`, as game-race does.
 
 ### Tests
 

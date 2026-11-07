@@ -511,9 +511,11 @@ end
 
 -- ─── Racing line ────────────────────────────────────────────────────
 
-local function buildRacingLine(samples)
+-- marginMetres keeps the line that far inside each edge: 2 m unless the track
+-- asks for more room.
+local function buildRacingLine(samples, marginMetres)
   local n = #samples
-  local margin = 2.0 * M
+  local margin = (marginMetres or 2.0) * M
   local px, py, lo, hi = {}, {}, {}, {}
   for i = 1, n do
     local s = samples[i]
@@ -601,6 +603,11 @@ function Track.new(def)
   self.samples = samples
   self.count = #samples
   self.length = length
+  -- How hard the AI plans to brake, as a share of its grip, and how much of its
+  -- grip it plans to corner on. The real circuits' long straights and long
+  -- corners need both gentler than the others are tuned for (0.72, and all).
+  self.aiBrake = def.aiBrake
+  self.aiGrip = def.aiGrip or 1
 
   computeCurvature(samples)
   assignKerbs(samples)
@@ -608,7 +615,7 @@ function Track.new(def)
   local runoff = (def.runoff or config.RUNOFF_WIDTH) * M
   self.barrierL = buildBarrierSide(samples, "l", runoff)
   self.barrierR = buildBarrierSide(samples, "r", runoff)
-  buildRacingLine(samples)
+  buildRacingLine(samples, def.lineMargin)
 
   local minX, minY, maxX, maxY = math.huge, math.huge, -math.huge, -math.huge
   for _, pts in ipairs({ self.barrierL, self.barrierR }) do
@@ -727,6 +734,66 @@ function Track:speedProfile(opts)
     end
   end
   return v
+end
+
+-- The corners, as a co-driver would call them: each bend's direction and how far
+-- it turns, in degrees. A corner is a run of the racing line turning tighter than
+-- CORNER_RADIUS one way; runs the same way with a short straight between are one
+-- corner, like a double-apex bend. Returns the list, in lap order, and a table
+-- from sample index to its corner. Built once per track.
+local CORNER_RADIUS = 150   -- m
+local CORNER_GAP = 10       -- m of straight that still joins two runs
+local CORNER_MIN = 25       -- degrees, below which it's a kink, not a corner
+
+function Track:corners()
+  if self.cornerList then return self.cornerList, self.cornerAt end
+  local samples, n = self.samples, self.count
+  local ds = self.length / n
+  local tight = 1 / (CORNER_RADIUS * M)
+  local function k(i) return samples[wrap(i, n)].lineK end
+
+  -- Start the scan on a sample that isn't in a corner, so none is cut in two.
+  local first = 1
+  for i = 1, n do
+    if abs(k(i)) < tight * 0.3 then first = i break end
+  end
+
+  local runs = {}
+  local i = first
+  local stop = first + n
+  while i < stop do
+    if abs(k(i)) >= tight then
+      local dir = k(i) > 0 and 1 or -1
+      local a, b = i, i
+      while b + 1 < stop and k(b + 1) * dir >= tight do b = b + 1 end
+      local last = runs[#runs]
+      if last and last.dir == dir and (a - last.b) * ds <= CORNER_GAP * M then
+        last.b = math.max(last.b, b)
+      else
+        runs[#runs + 1] = { a = a, b = b, dir = dir }
+      end
+      i = math.max(i, b) + 1
+    else
+      i = i + 1
+    end
+  end
+
+  local list, at = {}, {}
+  for _, run in ipairs(runs) do
+    local turned = 0
+    for j = run.a, run.b do turned = turned + k(j) * ds end
+    local degrees = abs(turned) * 180 / math.pi
+    if degrees >= CORNER_MIN then
+      -- Rounded to 15 degrees: a call, not a survey.
+      local corner = { first = wrap(run.a, n), last = wrap(run.b, n), direction = run.dir,
+        degrees = math.floor(degrees / 15 + 0.5) * 15 }
+      list[#list + 1] = corner
+      for j = run.a, run.b do at[wrap(j, n)] = at[wrap(j, n)] or corner end
+    end
+  end
+  table.sort(list, function(p, q) return p.first < q.first end)
+  self.cornerList, self.cornerAt = list, at
+  return list, at
 end
 
 -- Quality checks shown in the editor; `issues` is empty for a clean track.

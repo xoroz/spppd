@@ -27,7 +27,13 @@ together with the *awesome* [LÖVE](https://love2d.org) game framework.
 ]]--
 -- @module sfxr
 local sfxr = {}
-local bit = bit32 or require("bit")
+local hasBit, bitlib = pcall(require, "bit")
+local bit = bit32 or (hasBit and bitlib) or {
+    -- The browser build's Lua has no bit library. Only these two are used, on
+    -- non-negative numbers below 2^32 and with masks of the form 2^n - 1.
+    band = function(a, mask) return a % (mask + 1) end,
+    rshift = function(a, n) return math.floor(a / 2 ^ n) end,
+}
 
 -- Constants
 

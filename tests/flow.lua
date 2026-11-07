@@ -89,8 +89,10 @@ local function steps()
   end)
   step(2, function()
     expect(ui.focus.main == 1, "up moves it back")
-    press("return")
+    -- QUICK RACE is first; RACE is next.
+    press("down")
   end)
+  step(2, function() press("return") end)
   step(3, function()
     expect(menu.screen == "setup", "enter opens race setup")
     settings.track = "harbour"
@@ -104,11 +106,9 @@ local function steps()
     expect(menu.screen == "main", "escape goes back")
     press("return")
   end)
-  -- Move to START with the keyboard: track, car, paint, laps, opponents,
-  -- difficulty, time, assists, start. One press per frame, like a person.
-  for _ = 1, 8 do step(3, function() press("down") end) end
+  -- START is first, and the setup opens on it.
   step(3, function()
-    expect(ui.focus.setup == 9, "selection reached START")
+    expect(ui.focus.setup == 1, "the setup opens on START")
     press("return")
   end)
   step(3, function()
@@ -321,9 +321,9 @@ local function steps()
     expect(menu.screen == "main", "at the main menu")
     expect(music.isPlaying(), "and the music comes back")
     settings.mode = "race"
-    -- Mouse: click TRACK EDITOR, the fifth row
+    -- Mouse: click TRACK EDITOR, the sixth row
     local s = ui.scale()
-    click(100 * s, 62 * s + 15 * s * 4.5)
+    click(100 * s, 62 * s + 15 * s * 5.5)
   end)
   step(4, function()
     expect(state.screen == "editor", "clicking TRACK EDITOR opens it")
@@ -374,14 +374,14 @@ local function steps()
       if text:match("^ON AIR") then flow.onAir = text end
       flow.toast(text, ...)
     end
-    ui.focus.main = 3
+    ui.focus.main = 4
     press("return")
   end)
   step(3, function()
     expect(settings.mode == "freestyle", "FREESTYLE opens its setup")
     expect(#radio.tracks == 2, "and it has found the songs")
     settings.freestyleTrack = "lot"
-    ui.focus.setup = 8  -- track, car, paint, time, handling, radio, music folder, start
+    ui.focus.setup = 1  -- start
     press("return")
   end)
   step(3, function()
@@ -527,35 +527,34 @@ local function steps()
     settings.mode, settings.players, settings.opponents = "race", 1, 2
     settings.gearbox, settings.gearbox2 = "auto", "auto"
     menu.go("setup")
-    ui.focus.setup = 2
+    ui.focus.setup = 3
   end)
   step(3, function()
     expect(menu.canSplit(), "a pad plugged in offers a second player")
     press("right")
   end)
-  -- Track, players, driver, then that driver's car, paint, handling and gearbox.
+  -- Start, track, players, driver, then that driver's car, paint, handling and gearbox.
   step(3, function()
     expect(settings.players == 2, "right on PLAYERS makes it two")
     expect(menu.driver == 1, "the rows start on P1")
-    ui.focus.setup = 3
+    ui.focus.setup = 4
     press("right")
   end)
   step(3, function()
     expect(menu.driver == 2, "right on DRIVER moves the rows to P2")
     flow.car, flow.car2 = settings.car, settings.car2
-    ui.focus.setup = 4
+    ui.focus.setup = 5
     press("right")
   end)
   step(3, function()
     expect(settings.car2 == flow.car2 % #garage + 1 and settings.car == flow.car, "CAR then sets P2's car alone")
-    ui.focus.setup = 7
+    ui.focus.setup = 8
     press("right")
   end)
-  -- Laps, opponents, difficulty, time, start.
   step(3, function()
     expect(settings.gearbox2 == "manual" and settings.gearbox == "auto", "P2 GEARBOX is P2's alone")
     settings.car2 = flow.car2
-    ui.focus.setup = 12
+    ui.focus.setup = 1
     press("return")
   end)
   step(3, function()

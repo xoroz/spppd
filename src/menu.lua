@@ -19,6 +19,7 @@ local network = require("src/network_manager")
 local dynamics = require("src/sim/dynamics")
 local cheats = require("src/cheats")
 local input = require("src/input")
+local web = require("src/web")
 
 local menu = { screen = "main" }
 
@@ -170,8 +171,11 @@ local capture = nil  -- { kind = "key" or "pad", action =, age = }
 local note = nil     -- { text =, age = }
 
 function menu.go(screen)
-  -- The setup screen always opens on P1.
-  if screen == "setup" then menu.driver = 1 end
+  -- The setup screen always opens on P1, and on START.
+  if screen == "setup" then
+    menu.driver = 1
+    ui.focus.setup = 1
+  end
   menu.screen = screen
   ui.focus[screen] = ui.focus[screen] or 1
   capture, note = nil, nil
@@ -227,8 +231,19 @@ end
 
 -- Screens ------------------------------------------------------------------
 
+-- What QUICK RACE starts: the race as it was last set up.
+local function quickHint()
+  local entry = currentEntry()
+  local laps = settings.laps == 1 and "1 LAP" or settings.laps .. " LAPS"
+  return (entry and entry.title or "") .. "  " .. currentCar().name .. "  " .. laps
+end
+
 local function mainRows()
   local rows = {
+    { label = "QUICK RACE", activate = function()
+        settings.mode = "race"
+        menu.startRace()
+      end },
     { label = "RACE", activate = function() settings.mode = "race" menu.go("setup") end },
     { label = "TIME TRIAL", activate = function() settings.mode = "trial" menu.go("setup") end },
     { label = "FREESTYLE", activate = function()
@@ -236,8 +251,11 @@ local function mainRows()
         radio.scan()
         menu.go("setup")
       end },
-    { label = "ONLINE", activate = function() settings.mode = "race" menu.go("online") end },
   }
+  -- The browser has no sockets.
+  if not web.on then
+    rows[#rows + 1] = { label = "ONLINE", activate = function() settings.mode = "race" menu.go("online") end }
+  end
   -- The editor needs a keyboard and a right click.
   if not ui.mobile then
     rows[#rows + 1] = { label = "TRACK EDITOR", activate = function() menu.openEditor() end }
@@ -245,7 +263,8 @@ local function mainRows()
   rows[#rows + 1] = { label = "SETTINGS", activate = function() menu.go("settings") end }
   rows[#rows + 1] = { label = "CONTROLS", activate = function() menu.go("controls") end }
   rows[#rows + 1] = { label = "CREDITS", activate = function() menu.go("credits") end }
-  rows[#rows + 1] = { label = "QUIT", activate = function() love.event.quit() end }
+  -- Quitting a browser tab's game would leave a frozen page.
+  if not web.on then rows[#rows + 1] = { label = "QUIT", activate = function() love.event.quit() end } end
   return rows
 end
 
@@ -354,7 +373,9 @@ local function driverRow()
 end
 
 local function setupRows()
-  local rows = {}
+  -- START comes first, and the screen opens on it: two presses from the main menu
+  -- start a race as it was last set up.
+  local rows = { { label = "START", activate = function() menu.startRace() end } }
   local mode = settings.mode
   rows[#rows + 1] = mode == "freestyle" and freestyleTrackRow() or trackRow()
   if menu.canSplit(mode) then
@@ -398,7 +419,6 @@ local function setupRows()
         return count == 1 and "1 SONG" or count .. " SONGS"
       end, activate = function() radio.openFolder() end }
   end
-  rows[#rows + 1] = { label = "START", activate = function() menu.startRace() end }
   rows[#rows + 1] = { label = "BACK", activate = function() menu.go("main") end }
   return rows
 end
@@ -445,6 +465,7 @@ local function settingsRows()
       require("src/render/post").quality = v
     end, QUALITY, { high = "HIGH", low = "LOW" }),
     toggle("PACE NOTES", "paceNotes"),
+    toggle("BRAKE BOARDS", "brakeBoards"),
     toggle("MINIMAP", "minimap"),
     toggle("SHOW FPS", "showFps"),
   }
@@ -929,8 +950,8 @@ local function touchRows()
     }
   else
     rows = {
-      { "STEER", "STICK" }, { "ACCELERATE", settings.autoGas and "AUTO" or "STICK UP" },
-      { "BRAKE, REVERSE", "STICK DOWN" },
+      { "STEER", "STICK" }, { "ACCELERATE", settings.autoGas and "AUTO" or "HOLD GAS OR STICK UP" },
+      { "BRAKE, REVERSE", settings.autoGas and "STICK DOWN" or "HOLD BRAKE OR STICK DOWN" },
     }
   end
   rows[#rows + 1] = { "DRIFT", "HOLD DRIFT" }
@@ -1019,6 +1040,9 @@ function menu.draw(sw, sh)
       drawLobby(sw, sh, w, s)
     elseif menu.screen == "online" then
       drawSetupPreview(sw, sh, w, s, true)
+    end
+    if menu.screen == "main" and focused.label == "QUICK RACE" and not ui.mobile then
+      ui.text(quickHint(), 14 * s, sh - 34 * s, 5 * s, colors.muted, "left", w - 28 * s)
     end
     if menu.screen == "setup" then
       if focused.label == "HANDLING" then
