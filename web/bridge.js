@@ -45,6 +45,12 @@
     }
   }, { passive: false });
 
+  // Don't wait for Lua's hello: have the size in the save folder before the first frame.
+  Module.preRun = (Module.preRun || []).concat([function () {
+    saveDir = "/home/web_user/love/spppd";
+    try { sendViewport(); } catch (e) { saveDir = null; }
+  }]);
+
   Module.print = function (line) {
     if (typeof line === "string" && line.indexOf(PREFIX) === 0) {
       var parts = line.split("|");

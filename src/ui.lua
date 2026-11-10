@@ -19,7 +19,8 @@ local FONT = "assets/fonts/PressStart2P.ttf"
 -- small for its resolution, so everything goes up a size to read and tap.
 function ui.scale(sw, sh)
   sw, sh = sw or love.graphics.getWidth(), sh or love.graphics.getHeight()
-  local fit = math.min(sw / 640, sh / 360) * (ui.mobile and 1.5 or 1)
+  -- Portrait phones are narrow: size by a 400-wide design, not 640, or text is 7 px.
+  local fit = ui.mobile and math.min(sw / 400, sh / 360) * 1.5 or math.min(sw / 640, sh / 360)
   return math.max(1, math.floor(fit * 2 + 0.25) / 2)
 end
 

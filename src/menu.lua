@@ -1125,7 +1125,8 @@ function menu.listLayout(screen, count, sh, s)
     local y = 52 * s
     return y, (sh - y - 16 * s) / count
   end
-  local rowH = math.min(15 * s, (sh - 96 * s) / count)
+  -- On a phone, spend the spare height on taller rows to tap.
+  local rowH = math.min((ui.mobile and 28 or 15) * s, (sh - 96 * s) / count)
   return screen == "main" and 62 * s or 72 * s, rowH
 end
 
