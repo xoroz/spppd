@@ -68,6 +68,18 @@ phone, BUTTON LIST shows the touch controls.
   slingshot past.
 - **Pace notes** at the top of the screen show the next corner, how tight it is (1 is a
   hairpin, 4 a fast kink) and when to brake.
+- **Ghost cars & central leaderboard**: in both **RACE** and **TIME TRIAL** setup, the
+  **LOAD GHOST** row lets you race against any of the **Top 5** fastest recorded ghost
+  laps for the selected track (with each ghost rendered in its driver's car model and
+  paint color). When no ghost exists yet for a track, **LOAD GHOST** is grayed out
+  (`NONE`); once at least one lap is recorded, selecting **LOAD GHOST** opens a dropdown
+  of `OFF` and `#1..#5` (or use Left/Right to cycle). During 1-player and 2-player races,
+  15 Hz ghost frames are recorded for each player and only saved **after the race ends**
+  using each player's fastest lap of that race. Both the web build and the native desktop
+  LÖVE build sync top-5 laps and ghost frames with the central repository
+  (`https://apps.texngo.it/spppd/api/records`, configurable via `settings.scoreUrl` or
+  `SPPPD_SCORE_URL`) and fall back seamlessly to local storage (`records.lua`) when
+  offline or when the central server is unreachable.
 - **Radio**: freestyle plays MP3, OGG, FLAC or WAV files. Drop them on the game window,
   or use MUSIC FOLDER in freestyle setup. Not on phones.
 

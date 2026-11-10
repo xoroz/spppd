@@ -200,7 +200,10 @@ function ui.list(id, items, x, y, w, rowH, size, s)
     end
 
     if selected and ui.clicked and hovered and not item.disabled then
-      if item.left and ui.mx < x + w * 0.62 then
+      if item.activateOnClick and item.activate then
+        item.activate()
+        ui.played = "select"
+      elseif item.left and ui.mx < x + w * 0.62 then
         item.left()
         ui.played = "select"
       elseif item.right then

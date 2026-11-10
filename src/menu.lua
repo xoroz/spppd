@@ -144,11 +144,10 @@ local function driverCar(i)
   return spec, currentColor(spec, settings[keys.hue])
 end
 
--- Two at one screen: a desktop with a pad for the second, in a race or freestyle.
--- Time trial is one driver's, against their own ghost.
+-- Two at one screen: a desktop with a pad for the second.
 function menu.canSplit(mode)
   mode = mode or settings.mode
-  if ui.mobile or mode == "trial" then return false end
+  if ui.mobile then return false end
   return #input.gamepads() >= 1
 end
 
@@ -171,7 +170,10 @@ local note = nil     -- { text =, age = }
 
 function menu.go(screen)
   -- The setup screen always opens on P1.
-  if screen == "setup" then menu.driver = 1 end
+  if screen == "setup" then
+    menu.driver = 1
+    menu.ghostDropdown = false
+  end
   menu.screen = screen
   ui.focus[screen] = ui.focus[screen] or 1
   capture, note = nil, nil
@@ -196,6 +198,7 @@ function menu.startRace(extra)
   extra = extra or {}
   local spec = currentCar()
   menu.demoRunning = false
+  menu.ghostDropdown = false
   local mode = extra.online and "race" or settings.mode
   local entry
   if mode == "freestyle" then entry = freestyleEntry() else entry = extra.entry or currentEntry() end
@@ -205,6 +208,23 @@ function menu.startRace(extra)
     player2 = { spec = spec2, color = color2, name = "P2",
       assist = settings.assists2, manualGearbox = settings.gearbox2 == "manual" }
     playerName = "P1"
+  end
+  local ghostEntry = nil
+  if not extra.online and not extra.fromEditor and (mode == "race" or mode == "trial") and entry then
+    local ghosts = settings.topGhosts(entry.name)
+    local idx = tonumber(settings.selectedGhost) or 0
+    if idx >= 1 and ghosts[idx] then
+      local g = ghosts[idx]
+      local gSpec = (g.car and garage.byId(g.car)) or spec
+      ghostEntry = {
+        time = g.time,
+        ghost = g.ghost,
+        car = g.car or gSpec.id,
+        hue = g.hue or 1,
+        name = g.name or "GHOST",
+        color = currentColor(gSpec, g.hue or 1),
+      }
+    end
   end
   rm.start({
     player2 = player2,
@@ -221,6 +241,8 @@ function menu.startRace(extra)
     fromEditor = extra.fromEditor,
     online = extra.online,
     rules = mode == "trial" and settings.trialRules or nil,
+    ghostEntry = ghostEntry,
+    fromMenu = true,
   })
   state.screen = "race"
 end
@@ -292,7 +314,80 @@ local function trackRow()
     titles[e.name] = e.title
   end
   return stepper("TRACK", function() return settings.track end,
-    function(v) settings.track = v end, names, titles)
+    function(v)
+      settings.track = v
+      menu.ghostDropdown = false
+    end, names, titles)
+end
+
+local function formatGhostChoice(rank, entry)
+  if not entry then return "OFF" end
+  local spec = entry.car and garage.byId(entry.car)
+  local carName = spec and spec.name or tostring(entry.car or "CAR"):upper()
+  return string.format("#%d %s %s", rank, hud.formatTime(entry.time), carName)
+end
+
+local function addGhostRows(rows)
+  local entry = currentEntry()
+  local ghosts = entry and settings.topGhosts(entry.name) or {}
+  if #ghosts == 0 then
+    settings.selectedGhost = 0
+    menu.ghostDropdown = false
+    rows[#rows + 1] = {
+      label = "LOAD GHOST",
+      value = "NONE",
+      disabled = true,
+    }
+    return
+  end
+  if (tonumber(settings.selectedGhost) or 0) < 0 or (tonumber(settings.selectedGhost) or 0) > #ghosts then
+    settings.selectedGhost = 0
+  end
+  local function shiftGhost(d)
+    settings.selectedGhost = ((tonumber(settings.selectedGhost) or 0) + d) % (#ghosts + 1)
+    save()
+  end
+  rows[#rows + 1] = {
+    label = "LOAD GHOST",
+    value = function()
+      local idx = tonumber(settings.selectedGhost) or 0
+      if idx >= 1 and ghosts[idx] then
+        return formatGhostChoice(idx, ghosts[idx])
+      end
+      return menu.ghostDropdown and ("TOP " .. #ghosts .. " OPEN") or "OFF"
+    end,
+    left = function() shiftGhost(-1) end,
+    right = function() shiftGhost(1) end,
+    activateOnClick = true,
+    activate = function()
+      menu.ghostDropdown = not menu.ghostDropdown
+    end,
+  }
+  if menu.ghostDropdown then
+    rows[#rows + 1] = {
+      label = ((tonumber(settings.selectedGhost) or 0) == 0 and "* " or "  ") .. "OFF",
+      value = "NO GHOST",
+      activate = function()
+        settings.selectedGhost = 0
+        menu.ghostDropdown = false
+        save()
+      end,
+    }
+    for i, g in ipairs(ghosts) do
+      local idx = i
+      local spec = g.car and garage.byId(g.car)
+      local carName = spec and spec.name or tostring(g.car or "CAR"):upper()
+      rows[#rows + 1] = {
+        label = string.format("%s#%d %s", (tonumber(settings.selectedGhost) or 0) == idx and "* " or "  ", idx, hud.formatTime(g.time)),
+        value = carName,
+        activate = function()
+          settings.selectedGhost = idx
+          menu.ghostDropdown = false
+          save()
+        end,
+      }
+    end
+  end
 end
 
 local function freestyleTrackRow()
@@ -399,9 +494,13 @@ local function setupRows()
       end, activate = function() radio.openFolder() end }
   end
   rows[#rows + 1] = { label = "START", activate = function() menu.startRace() end }
+  if mode == "race" or mode == "trial" then
+    addGhostRows(rows)
+  end
   rows[#rows + 1] = { label = "BACK", activate = function() menu.go("main") end }
   return rows
 end
+menu.setupRows = setupRows
 
 -- Where a phone enters cheat codes. The answer shows in the row for a moment.
 local CODE_ANSWER_TIME = 2
@@ -866,8 +965,15 @@ local function drawSetupPreview(sw, sh, boardW, s, carOnly)
     -- Freestyle times nothing, so a best lap means nothing there.
     if settings.mode ~= "freestyle" then
       local best = settings.bestLap(entry.name, spec.id, settings.trialRules)
+        or settings.bestTrackLap(entry.name)
       ui.text("BEST " .. hud.formatTime(best), x + 6 * s, 14 * s + size + 20 * s, 6 * s,
         best and colors.sectorPurple or colors.muted)
+      local ghosts = settings.topGhosts(entry.name)
+      local gIdx = tonumber(settings.selectedGhost) or 0
+      if gIdx >= 1 and ghosts[gIdx] then
+        ui.text("GHOST #" .. gIdx .. " " .. hud.formatTime(ghosts[gIdx].time),
+          x, 14 * s + size + 20 * s, 6 * s, colors.marshal, "right", w - 6 * s)
+      end
     end
   end
 
@@ -1030,6 +1136,9 @@ function menu.draw(sw, sh)
         ui.text(MUSIC_HINT, 14 * s, sh - 34 * s, 5 * s, colors.muted, "left", w - 28 * s)
       elseif focused.label == "PLAYERS" or focused.label == "DRIVER" then
         ui.text(splitHint(), 14 * s, sh - 34 * s, 5 * s, colors.muted, "left", w - 28 * s)
+      elseif focused.label == "LOAD GHOST" then
+        ui.text("Press Enter or click for Top 5 Ghosts dropdown, or Left/Right to cycle.", 14 * s, sh - 34 * s, 5 * s,
+          colors.muted, "left", w - 28 * s)
       end
     end
     if menu.screen == "online" and not failed then

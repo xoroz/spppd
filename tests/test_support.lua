@@ -104,6 +104,145 @@ h.describe("settings", function()
     h.assertEq(settings.ghost("t", "c", "open")[1], 2)
     love.filesystem.remove("records.lua")
   end)
+
+  h.it("keeps the top 5 ghosts per track and falls back to local when central is unavailable", function()
+    love.filesystem.remove("records.lua")
+    love.filesystem.remove("central-sync.lua")
+    settings.centralFile = "/nonexistent/unavailable/spppd-central-records.lua"
+    settings.load()
+    local g = { 10, 20, 0.5, 12, 22, 0.6 }
+    settings.submitLap("mirage", "rocket", 45.0, g, "open", { hue = 2, name = "P1" })
+    settings.submitLap("mirage", "cyber", 41.0, g, "open", { hue = 3, name = "P2" })
+    settings.submitLap("mirage", "wedge", 43.0, g, "open", { hue = 4, name = "P1" })
+    settings.submitLap("mirage", "samurai", 42.0, g, "open", { hue = 5, name = "P2" })
+    settings.submitLap("mirage", "hot_hatch", 44.0, g, "open", { hue = 1, name = "P1" })
+    settings.submitLap("mirage", "big_bull", 46.0, g, "open", { hue = 6, name = "P2" })
+    local top = settings.topGhosts("mirage")
+    h.assertEq(#top, 5, "capped at top 5")
+    h.assertEq(top[1].time, 41.0)
+    h.assertEq(top[1].car, "cyber")
+    h.assertEq(top[2].time, 42.0)
+    h.assertEq(top[5].time, 45.0)
+    -- Merge central sync payload (both central-sync.lua and native ?format=lua response)
+    love.filesystem.write("central-sync.lua", "return { mirage = { { time = 39.5, car = 'open_wheeler', hue = 7, name = 'CENTRAL', rules = 'open', ghost = { 1, 2, 0, 3, 4, 0 } } } }\n")
+    top = settings.topGhosts("mirage")
+    h.assertEq(#top, 5)
+    h.assertEq(top[1].time, 39.5)
+    h.assertEq(top[1].car, "open_wheeler")
+    local nativeLua = 'return {\n  ["mirage"] = {\n    [1] = { ["time"] = 38.2500, ["car"] = "rocket", ["hue"] = 2, ["name"] = "DESKTOP", ["rules"] = "open", ["ghost"] = { 5, 6, 0, 7, 8, 0 } },\n  },\n}\n'
+    local parsed = settings.parseCentralLua(nativeLua)
+    h.assertTrue(type(parsed) == "table", "native desktop ?format=lua response parses cleanly")
+    settings.mergeCentral(parsed)
+    top = settings.topGhosts("mirage")
+    h.assertEq(top[1].time, 38.25)
+    h.assertEq(top[1].name, "DESKTOP")
+    settings.centralFile = nil
+    love.filesystem.remove("records.lua")
+  end)
+
+  h.it("offers LOAD GHOST with top-5 dropdown in race and time trial, disabled when none exist", function()
+    local menu = require("src/menu")
+    local rm = require("src/race_manager")
+    love.filesystem.remove("records.lua")
+    settings.load()
+    settings.track = "mirage"
+    settings.mode = "race"
+    menu.go("setup")
+    local function findRow(rows, label)
+      for _, r in ipairs(rows) do
+        if r.label == label then return r end
+      end
+      return nil
+    end
+    local ghostRow = findRow(menu.setupRows(), "LOAD GHOST")
+    h.assertTrue(ghostRow ~= nil, "LOAD GHOST row present")
+    h.assertTrue(ghostRow.disabled == true, "grayed out when no ghosts exist")
+    h.assertEq(ghostRow.value, "NONE")
+
+    -- Add two ghosts and check that LOAD GHOST is enabled and its dropdown opens
+    local frames1 = { 100, 200, 0.1, 110, 210, 0.2 }
+    local frames2 = { 120, 220, 0.3, 130, 230, 0.4 }
+    settings.submitLap("mirage", "rocket", 40.5, frames1, "open", { hue = 2, name = "P1" })
+    settings.submitLap("mirage", "cyber", 42.0, frames2, "open", { hue = 4, name = "P2" })
+
+    ghostRow = findRow(menu.setupRows(), "LOAD GHOST")
+    h.assertTrue(not ghostRow.disabled, "enabled when ghosts exist")
+    h.assertEq(ghostRow.value(), "OFF")
+
+    -- Open dropdown and pick #2
+    ghostRow.activate()
+    h.assertTrue(menu.ghostDropdown == true, "dropdown opened")
+    local expanded = menu.setupRows()
+    local pick2 = nil
+    for _, r in ipairs(expanded) do
+      if r.label:find("#2", 1, true) then pick2 = r break end
+    end
+    h.assertTrue(pick2 ~= nil, "top-5 dropdown lists #2 ghost")
+    pick2.activate()
+    h.assertTrue(not menu.ghostDropdown, "picking a ghost closes dropdown")
+    h.assertEq(settings.selectedGhost, 2)
+
+    -- Start race and verify ghost is loaded in race mode
+    menu.startRace()
+    h.assertTrue(rm.ghost() ~= nil and #rm.ghost() == 6, "ghost loaded in race mode")
+    h.assertEq(rm.ghostCar().spec.id, "cyber", "ghost uses recorded car spec")
+    rm.stop()
+
+    -- Also verify in trial mode
+    settings.mode = "trial"
+    settings.selectedGhost = 1
+    menu.startRace()
+    h.assertTrue(rm.ghost() ~= nil and #rm.ghost() == 6, "ghost loaded in trial mode")
+    h.assertEq(rm.ghostCar().spec.id, "rocket")
+    rm.stop()
+
+    settings.selectedGhost = 0
+    love.filesystem.remove("records.lua")
+  end)
+
+  h.it("saves best lap and ghost only after race end and on the best lap", function()
+    local rm = require("src/race_manager")
+    love.filesystem.remove("records.lua")
+    settings.load()
+    local entry = catalog.find("mirage")
+    rm.start({
+      mode = "race",
+      entry = entry,
+       laps = 2,
+      opponents = 0,
+      spec = require("src/entities/garage")[1],
+      startDelay = 0.05,
+    })
+    rm.update(0.1) -- past countdown into racing
+    local race = rm.race()
+    local player = race.player
+    h.assertEq(race.phase, "racing")
+
+    -- Record some frames and finish Lap 1 at 38.0s (fast lap)
+    rm.update(0.2)
+    race.time = 38.0
+    player.lapStart = 0
+    player.lapsDone = 1
+    rm.onLap(player, 38.0, true)
+    h.assertEq(#settings.topGhosts("mirage"), 0, "not saved mid-race before race finishes")
+
+    -- Record some frames and finish Lap 2 at 44.0s (slower final lap)
+    rm.update(0.2)
+    race.time = 82.0
+    player.lapsDone = 2
+    rm.onLap(player, 44.0, true)
+    player.finished = true
+    player.finishTime = 82.0
+    race:onPlayerFinished(player)
+    rm.update(0.05) -- triggers updateFinish -> rm.commitRecords()
+
+    h.assertTrue(rm.isFinished(), "race finished")
+    local top = settings.topGhosts("mirage")
+    h.assertEq(#top, 1, "saved after race end")
+    h.assertEq(top[1].time, 38.0, "saved the faster Lap 1 time, not slower Lap 2")
+    rm.stop()
+    love.filesystem.remove("records.lua")
+  end)
 end)
 
 h.describe("settings server", function()

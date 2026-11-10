@@ -18,3 +18,4 @@ kit/
 
 # A go build in server/ writes the relay here.
 server/server
+texngo/data/
