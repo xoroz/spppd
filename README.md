@@ -176,6 +176,26 @@ without showing in its stats. See `ARCHITECTURE.md`.
 `ARCHITECTURE.md` explains how the game works, `SOUND.md` how it's meant to sound,
 and `ROADMAP.md` what's next.
 
+## Browser build (apps.texngo.it)
+
+A browser copy runs at <https://apps.texngo.it/spppd/>, built with
+[love.js](https://github.com/Davidobot/love.js) 11.4.1 by `texngo/build-web.sh`. Online play
+is not available there: browsers cannot open UDP sockets. Everything else works.
+
+LÖVE in the browser is not the same as on the desktop, so the build adds a few shims to the
+packaged `main.lua` only (the game's source files are unchanged):
+
+- a stub `socket` module, so the game loads with ONLINE unavailable;
+- a pure-Lua `bit` (love.js runs plain Lua 5.1, not LuaJIT), used by sfxr;
+- a coroutine-safe `pcall`: plain Lua 5.1 cannot yield across `pcall`, and the game loads
+  its audio in a coroutine inside one, so without it the sound is turned off;
+- no mipmaps: WebGL 1 cannot mipmap textures whose sides are not a power of two;
+- `t.version` is set to 11.4 in the web copy's `conf.lua`, the version love.js runs.
+
+`texngo/update.sh` runs from cron every 10 minutes: when `master` has new commits it pulls,
+rebuilds into `dist/web.new` and swaps it in only if the build succeeds. Details, including
+the Apache alias and the Pangolin route, are in `texngo/README.md`.
+
 ## License
 
 Copyright (C) 2026 vanillaiice
