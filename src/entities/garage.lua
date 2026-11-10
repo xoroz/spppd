@@ -17,6 +17,7 @@ local garage = {
   require("src/entities/vehicles/rally_king"),
   require("src/entities/vehicles/prototype"),
   require("src/entities/vehicles/drift_king"),
+  require("src/entities/vehicles/tatus"),
 }
 
 function garage.byId(id)

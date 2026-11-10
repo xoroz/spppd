@@ -15,7 +15,6 @@ local settings = {
   quality = "high",
   minimap = true,
   paceNotes = true,
-  brakeBoards = true,  -- 200 and 100 m before a braking zone, with the pace notes
   showFps = false,
   fullscreen = false,
   touch = "auto",

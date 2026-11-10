@@ -62,15 +62,14 @@ phone, BUTTON LIST shows the touch controls.
 - **Fences** bite: a hard hit wrecks the car, which costs you over a second and all your
   speed. Glancing off one is fine, and so is being shoved into one by another car.
 - **Handling** is set in race setup. Arcade is the default, with big grip and a held
-  drift on the handbrake. Sport adds realistic grip with driver aids, and Sim has no
+  drift on the handbrake. Easy is Arcade with 50% more grip on every car, while the
+  computer drivers stay on Arcade. Sport adds realistic grip with driver aids, and Sim has no
   aids at all. Online races always use Arcade.
 - **Boost** fills on its own, and three times faster while the car is sliding.
 - **Slipstream**: sit close behind a car at speed for less drag, then pull out and
   slingshot past.
 - **Pace notes** at the top of the screen show the next corner, how tight it is (1 is a
   hairpin, 4 a fast kink), how far it turns (90°, a 180° hairpin) and when to brake.
-- **Brake boards** come up big before each braking zone, 200 m and then 100 m out, with
-  the corner they're for. BRAKE BOARDS in SETTINGS turns them off.
 - **QUICK RACE**, first in the main menu, starts the race you set up last in one press.
   Race setup opens on START, so RACE then START works as well.
 - **Radio**: freestyle plays MP3, OGG, FLAC or WAV files. Drop them on the game window,
@@ -102,7 +101,11 @@ mid-pack to 100 km/h, but with the best power to weight here it's among the quic
 Four more came after these: GT RACER (a winged endurance coupe, front V8), RALLY KING
 (a four-wheel-drive turbo hatch that shrugs off gravel), PROTOTYPE (a light 24-hour car
 with big downforce) and DRIFT KING (a big-turbo rear-drive saloon on hard tyres, with
-extra steering lock).
+extra steering lock). Then TATUS, a junior single-seater: the grippiest tyres in the
+garage, middling handling and the lowest top speed.
+
+Race setup shows each car's SPEED, ACCEL, BRAKE, HANDLING and TIRES, measured from the
+game's own physics on Sport handling.
 
 Raw numbers aren't the whole story: corners decide most laps, and TOFU RUNNER and 4WD
 MONSTER corner harder than MUSCLE MONSTER or BIG BULL.
@@ -199,15 +202,10 @@ A browser copy runs at <https://apps.texngo.it/spppd/>, built with
 [love.js](https://github.com/Davidobot/love.js) 11.4.1 by `texngo/build-web.sh`. Online play
 is not available there: browsers cannot open UDP sockets. Everything else works.
 
-LÖVE in the browser is not the same as on the desktop, so the build adds a few shims to the
-packaged `main.lua` only (the game's source files are unchanged):
-
-- a stub `socket` module, so the game loads with ONLINE unavailable;
-- a pure-Lua `bit` (love.js runs plain Lua 5.1, not LuaJIT), used by sfxr;
-- a coroutine-safe `pcall`: plain Lua 5.1 cannot yield across `pcall`, and the game loads
-  its audio in a coroutine inside one, so without it the sound is turned off;
-- no mipmaps: WebGL 1 cannot mipmap textures whose sides are not a power of two;
-- `t.version` is set to 11.4 in the web copy's `conf.lua`, the version love.js runs.
+`texngo/build-web.sh` runs `./build.sh`, the same browser build as above, so the page gets
+`web/bridge.js`: the game fills the browser window, a phone gets the touch controls, and
+clicks land where they're aimed. The game copes with the browser's plain Lua 5.1 itself (no
+sockets, no `bit`, no yield across `pcall`, no mipmaps on odd-sized textures).
 
 `texngo/update.sh` runs from cron every 10 minutes: when `master` has new commits it pulls,
 rebuilds into `dist/web.new` and swaps it in only if the build succeeds. Details, including

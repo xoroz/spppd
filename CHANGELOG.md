@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+- Cars slide less on ARCADE (and EASY): the front wheels line up with where the car is
+  going and stability control catches a slide sooner. On a lap of Mugello the slip angle
+  is about a fifth lower and real slides are mostly gone. Handbrake drifts are unchanged.
+- The 200 and 100 brake boards are gone, with their setting. Pace notes stay.
+- EASY handling: ARCADE with 50% more grip on every car. The computer drivers stay on
+  ARCADE, so it's an advantage for whoever picks it. Online races still use ARCADE.
+- Race setup shows each car's SPEED, ACCEL, BRAKE, HANDLING and TIRES as bars with the
+  real numbers under them: top speed, 0-100 km/h, 100-0 km/h in metres, and cornering g.
+  They're measured from the game's own physics, so they always match how the car drives.
+- New car: TATUS, a junior single-seater with a small turbo four. The grippiest tyres
+  here and middling handling, but it tops out around 215 km/h.
+- The apps.texngo.it browser build now uses `build.sh`, so it fills the browser window,
+  a phone gets the touch controls, and the first click lands where it's aimed.
+
 ## 3.0.0 (2026-11-07)
 
 3.0 is the version the rest of 3.x builds on. Every 3.x version races every other one

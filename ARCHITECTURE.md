@@ -370,12 +370,14 @@ revs, filtered accelerations, boost state, and per-wheel loads and slips.
 Set in `dynamics.ASSISTS`. `steer` and `caster` are real effects. Everything from
 `grip` on is arcade tuning, and its neutral value leaves the physics alone.
 
+EASY is ARCADE with `grip` × 1.5 (`dynamics.EASY_GRIP`); every other value is ARCADE's.
+
 | | ARCADE | FULL | SPORT | SIM |
 | --- | --- | --- | --- | --- |
 | Selectable | Yes, default | No | Yes | Yes |
-| `tc`, `abs`, `esc` | 1, 1, 0.7 | 1, 1, 1 | 0.8, 1, 0.5 | 0, 0, 0 |
-| `steer`, `caster` | 1, 0.85 | 1, 0.85 | 0.9, 0.75 | 0, 0.35 |
-| `grip` | 1.3 | 1 | 1 | 1 |
+| `tc`, `abs`, `esc` | 1, 1, 0.85 | 1, 1, 1 | 0.8, 1, 0.5 | 0, 0, 0 |
+| `steer`, `caster` | 1, 1 | 1, 0.85 | 0.9, 0.75 | 0, 0.35 |
+| `grip` | 1.3 (EASY 1.95) | 1 | 1 | 1 |
 | `tyreC` (lower keeps more grip past the peak) | 1.15 | 1.35 | 1.35 | 1.35 |
 | `transfer` (weight transfer felt) | 0.6 | 1 | 1 | 1 |
 | `keyRate` (keyboard steering speed) | 1.9 | 1 | 1 | 1 |
@@ -386,9 +388,9 @@ Set in `dynamics.ASSISTS`. `steer` and `caster` are real effects. Everything fro
 | `brake`, `shift` multipliers | 1.25, 0.5 | 1, 1 | 1, 1 | 1, 1 |
 | `tow` (slipstream pull, m/s²) | 0.9 | 0 | 0 | 0 |
 
-FULL exists for the AI and the demo race. AI cars use ARCADE when the player does and
-FULL otherwise, because arcade grip is much higher and the grid wouldn't match. Online
-races always use ARCADE.
+FULL exists for the AI and the demo race. AI cars use ARCADE when the player is on EASY
+or ARCADE and FULL otherwise, because arcade grip is much higher and the grid wouldn't
+match. EASY's extra grip is the player's alone. Online races always use ARCADE.
 
 ### Surfaces
 
@@ -563,6 +565,13 @@ end.
 | 14 | RALLY KING | hatch | AWD | 1250 | 301 | 470 | 6 | | 4, 1 turbo | 120 |
 | 15 | PROTOTYPE | hyper | RWD | 1030 | 454 | 560 | 7 | | 6 race, 2 turbos | 130 |
 | 16 | DRIFT KING | sedan | RWD | 1350 | 369 | 600 | 6 | | 6, 1 turbo | 150 |
+| 17 | TATUS | formula | RWD | 640 | 154 | 250 | 6 | 211 | 4 race, 1 turbo | 90 |
+
+Race setup shows each car's SPEED, ACCEL, BRAKE, HANDLING and TIRES. `src/sim/car_stats.lua`
+measures them by driving the car through the dynamics on SPORT, once per car when first
+shown: top speed, 0-100 km/h, 100-0 km/h in metres, the mean yaw rate through a 90 km/h
+slalom (HANDLING, shown out of 10) and steady cornering g at 108 km/h (TIRES). Each bar
+scores against fixed ranges in `stats.RANGES`, so adding a car never moves the others.
 
 "Gearing limit" is redline in top gear. Drag stops most cars before that, and BAJA
 BEAST well before it. `cylinders`, `turbos`, `supercharged` and `raceExhaust` change
