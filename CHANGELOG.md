@@ -1,20 +1,42 @@
 # Changelog
 
-## Unreleased
+## 3.1.0 (2026-11-10)
 
-- Cars slide less on ARCADE (and EASY): the front wheels line up with where the car is
-  going and stability control catches a slide sooner. On a lap of Mugello the slip angle
-  is about a fifth lower and real slides are mostly gone. Handbrake drifts are unchanged.
-- The 200 and 100 brake boards are gone, with their setting. Pace notes stay.
+### Ghosts and best laps
+
+- LOAD GHOST in race and time trial setup races you against any of the five fastest
+  laps on that track, each in its driver's car and paint. It reads NONE until a lap is
+  recorded; press it for the list, or Left and Right to cycle. OFF means no ghost.
+- Both drivers' fastest laps are recorded, in one- and two-player races, and saved when
+  the race ends. The top five per track are shared through apps.texngo.it by the browser
+  and desktop builds, and kept in `records.lua` when that can't be reached.
+
+### Handling and cars
+
 - EASY handling: ARCADE with 50% more grip on every car. The computer drivers stay on
   ARCADE, so it's an advantage for whoever picks it. Online races still use ARCADE.
+- Cars slide less on ARCADE and EASY: the front wheels line up with where the car is
+  going and stability control catches a slide sooner. On a lap of Mugello the slip angle
+  is about a fifth lower and real slides are mostly gone. Handbrake drifts are unchanged.
 - Race setup shows each car's SPEED, ACCEL, BRAKE, HANDLING and TIRES as bars with the
   real numbers under them: top speed, 0-100 km/h, 100-0 km/h in metres, and cornering g.
   They're measured from the game's own physics, so they always match how the car drives.
-- New car: TATUS, a junior single-seater with a small turbo four. The grippiest tyres
-  here and middling handling, but it tops out around 215 km/h.
-- The apps.texngo.it browser build now uses `build.sh`, so it fills the browser window,
-  a phone gets the touch controls, and the first click lands where it's aimed.
+- New cars: GT RACER, RALLY KING, PROTOTYPE, DRIFT KING and TATUS, a junior single-seater
+  with the grippiest tyres here and middling handling that tops out around 215 km/h.
+
+### Tracks and menus
+
+- New tracks traced from OpenStreetMap: Mugello and Barcelona.
+- QUICK RACE, first in the main menu, starts the last setup in one press.
+- The 200 and 100 brake boards are gone, with their setting. Pace notes stay, and now
+  show how far a corner turns (90°, 180° HAIRPIN).
+
+### Browser
+
+- Play in the browser (`./build.sh`, love.js). A phone gets the touch controls and big
+  menus, with GAS and BRAKE buttons when Auto Gas is off.
+- The apps.texngo.it copy uses the same build, so it fills the browser window and the
+  first click lands where it's aimed, plus the bridge for the shared best laps.
 
 ## 3.0.0 (2026-11-07)
 

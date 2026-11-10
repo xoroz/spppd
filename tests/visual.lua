@@ -90,7 +90,7 @@ local SCENES = {
   -- The finish with two: P1 home, P2 still out, then both and the results.
   splitfinish = split,
   menu = function() state.screen = "splash" require("src/splash").timer = 99 end,
-  setup = function() menu.enter() settings.mode = "race" menu.go("setup") end,
+  setup = function() menu.enter() settings.mode = os.getenv("SPPPD_MODE") or "race" settings.track = os.getenv("SPPPD_TRACK") or settings.track menu.go("setup") end,
   newestcar = function() settings.car = #garage menu.enter() settings.mode = "race" menu.go("setup") end,
   -- Any one car's panel in race setup: SPPPD_CAR=cyber.
   carcard = function()

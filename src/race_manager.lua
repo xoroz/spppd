@@ -23,6 +23,7 @@ local colors = require("src/colors")
 local network = require("src/network_manager")
 local rumble = require("src/rumble")
 local cheats = require("src/cheats")
+local garage = require("src/entities/garage")
 
 local rm = {}
 
@@ -121,6 +122,23 @@ local function newView(race, car, index, hands)
     hands = hands,
     cam = newCamera(car.curX, car.curY, car.curA),
     drift = race.mode == "freestyle" and { total = 0, combo = 0, idle = 0 } or nil,
+    ghostFrames = {},
+    ghostTimer = 0,
+    bestLapTime = nil,
+    bestLapFrames = nil,
+  }
+end
+
+local function makeGhostCar(spec, color)
+  spec = spec or garage[1]
+  if love.graphics then sprites.get(spec) end
+  return {
+    spec = spec,
+    color = color or spec.color,
+    length = spec.length * M,
+    width = spec.width * M,
+    ghostTimer = 0,
+    model = dynamics.new(spec, "arcade"),
   }
 end
 
@@ -138,6 +156,34 @@ local function viewRect(index, sw, sh)
   if not session or not session.split then return 0, 0, sw, sh end
   local w = math.floor(sw / 2)
   return index == 1 and 0 or sw - w, 0, w, sh
+end
+
+-- Commits each driver's fastest lap and ghost from this session once the race
+-- or time trial session ends. Works for both 1-player and 2-player modes.
+function rm.commitRecords()
+  if not session or session.demo or session.recordsCommitted then return false end
+  local entry = session.opts and session.opts.entry
+  if not entry then return false end
+  session.recordsCommitted = true
+  local race = session.race
+  local rules = race.mode == "trial" and race.rules or "open"
+  local anySaved = false
+  for i, view in ipairs(session.views or {}) do
+    if view.bestLapTime and view.bestLapFrames and #view.bestLapFrames >= 6 then
+      local hue = (i == 2) and settings.hue2 or settings.hue
+      local saved = settings.submitLap(
+        entry.name,
+        view.car.spec.id,
+        view.bestLapTime,
+        view.bestLapFrames,
+        rules,
+        { hue = hue, name = view.car.name }
+      )
+      if saved then anySaved = true end
+      view.committedBestLap = view.bestLapTime
+    end
+  end
+  return anySaved
 end
 
 function rm.start(opts)
@@ -169,16 +215,19 @@ function rm.start(opts)
   local timeName = opts.time or "day"
   local env = environment.time(timeName)
   local scene
-  if track then
-    scene = track_renderer.load(track, timeName)
-    minimap.load(track)
+  if love.graphics then
+    if track then
+      scene = track_renderer.load(track, timeName)
+      minimap.load(track)
+    else
+      scene = track_renderer.loadApron(timeName)
+    end
+    vfx.load(scene.theme.dust)
+    vfx.density = settings.quality == "low" and 0.5 or 1
+    skids.load()
   else
-    scene = track_renderer.loadApron(timeName)
+    scene = { theme = environment.theme(track and track.theme or "park") }
   end
-
-  vfx.load(scene.theme.dust)
-  vfx.density = settings.quality == "low" and 0.5 or 1
-  skids.load()
 
   session = {
     opts = opts,
@@ -192,12 +241,15 @@ function rm.start(opts)
     demo = opts.demo,
     split = #race.players > 1,
     bestLap = nil,
-    ghostFrames = {},
-    ghostTimer = 0,
+    ghost = nil,
+    ghostCar = nil,
+    recordsCommitted = false,
   }
 
   for _, car in ipairs(race.cars) do lightsFor(car, env) end
-  for _, car in ipairs(race.cars) do sprites.get(car.spec) end
+  if love.graphics then
+    for _, car in ipairs(race.cars) do sprites.get(car.spec) end
+  end
 
   local hands1, hands2 = MERGED, nil
   if session.split then hands1, hands2 = readers[1], readers[2] end
@@ -216,10 +268,23 @@ function rm.start(opts)
     race.players[2].driver = readerDriver(hands2, function() return settings.gearbox2 == "manual" end)
   else
     race.player.driver = playerDriver
-    if race.mode == "trial" then
-      if opts.entry then
-        session.bestLap = settings.bestLap(opts.entry.name, opts.spec.id, race.rules)
+  end
+
+  if not opts.demo then
+    if opts.ghostEntry and type(opts.ghostEntry.ghost) == "table" and #opts.ghostEntry.ghost >= 6 then
+      local gSpec = (opts.ghostEntry.car and garage.byId(opts.ghostEntry.car)) or opts.spec or garage[1]
+      local gColor = opts.ghostEntry.color or gSpec.color
+      session.ghost = opts.ghostEntry.ghost
+      session.ghostCar = makeGhostCar(gSpec, gColor)
+      session.bestLap = opts.ghostEntry.time
+    elseif race.mode == "trial" and opts.entry then
+      session.bestLap = settings.bestLap(opts.entry.name, opts.spec.id, race.rules)
+        or settings.bestTrackLap(opts.entry.name)
+      if not opts.fromMenu then
         session.ghost = settings.ghost(opts.entry.name, opts.spec.id, race.rules)
+        if session.ghost then
+          session.ghostCar = makeGhostCar(opts.spec, opts.color)
+        end
       end
     end
   end
@@ -232,6 +297,9 @@ end
 
 function rm.stop()
   if session then
+    if session.race and session.race.mode == "trial" then
+      rm.commitRecords()
+    end
     session.race:destroy()
     session = nil
   end
@@ -249,6 +317,14 @@ end
 
 function rm.opts()
   return session and session.opts
+end
+
+function rm.ghost()
+  return session and session.ghost
+end
+
+function rm.ghostCar()
+  return session and session.ghostCar
 end
 
 function rm.isPaused()
@@ -285,7 +361,12 @@ function rm.isOnline()
 end
 
 function rm.restart()
-  if session then rm.start(session.opts) end
+  if session then
+    if session.race and session.race.mode == "trial" then
+      rm.commitRecords()
+    end
+    rm.start(session.opts)
+  end
 end
 
 -- True when the pause menu can change the cars: freestyle, with nobody else's
@@ -380,27 +461,44 @@ function rm.onLap(car, time, clean)
   -- The last lap gets the finish sting instead.
   if race.mode ~= "race" or car.lapsDone < race.laps then audio.play("lap", 0.5) end
 
+  local frames = view.ghostFrames or {}
+  if #frames < 6 then
+    frames[#frames + 1] = math.floor(car.curX + 0.5)
+    frames[#frames + 1] = math.floor(car.curY + 0.5)
+    frames[#frames + 1] = math.floor(car.curA * 100 + 0.5) / 100
+  end
+
+  if clean or race.mode == "race" then
+    if not view.bestLapTime or time < view.bestLapTime then
+      view.bestLapTime = time
+      view.bestLapFrames = frames
+    end
+    if race.mode == "race" and (not car.bestLap or time < car.bestLap) then
+      car.bestLap = time
+    end
+  end
+  view.ghostFrames = {}
+  view.ghostTimer = 0
+
   if race.mode == "trial" then
-    local entry = session.opts.entry
     if clean then
-      -- A test drive from the editor keeps its best in memory only.
       local isRecord = not session.bestLap or time < session.bestLap
-      if entry then
-        isRecord = settings.submitLap(entry.name, session.opts.spec.id, time, session.ghostFrames, race.rules)
-      end
       if isRecord then
-        rm.setToast("NEW BEST  " .. hud.formatTime(time), colors.sectorPurple)
+        rm.setToast("NEW BEST  " .. hud.formatTime(time), colors.sectorPurple, nil, nil, view)
         session.bestLap = time
-        session.ghost = session.ghostFrames
+        -- From the menu, LOAD GHOST decides: OFF means no ghost at all. Elsewhere
+        -- (the editor's test drive) the best lap so far becomes the ghost.
+        if not session.opts.ghostEntry and not session.opts.fromMenu then
+          session.ghost = frames
+          session.ghostCar = makeGhostCar(car.spec, car.color)
+        end
       else
         local delta = time - (session.bestLap or time)
-        rm.setToast(string.format("%s  +%.3f", hud.formatTime(time), delta), colors.paint)
+        rm.setToast(string.format("%s  +%.3f", hud.formatTime(time), delta), colors.paint, nil, nil, view)
       end
     else
-      rm.setToast("LAP NOT COUNTED", colors.kerb)
+      rm.setToast("LAP NOT COUNTED", colors.kerb, nil, nil, view)
     end
-    session.ghostFrames = {}
-    session.ghostTimer = 0
   elseif race.mode == "race" and car.lapsDone < race.laps then
     local best = car.bestLap == time
     rm.setToast(string.format("LAP %d  %s", car.lapsDone, hud.formatTime(time)), best and colors.sectorGreen or colors.paint, 2,
@@ -568,15 +666,20 @@ local function updatePaceNote(view)
 end
 
 local function recordGhost(dt)
-  if session.race.mode ~= "trial" or session.race.phase ~= "racing" then return end
-  session.ghostTimer = session.ghostTimer - dt
-  if session.ghostTimer <= 0 then
-    session.ghostTimer = 1 / 15
-    local car = session.race.player
-    local f = session.ghostFrames
-    f[#f + 1] = math.floor(car.curX + 0.5)
-    f[#f + 1] = math.floor(car.curY + 0.5)
-    f[#f + 1] = math.floor(car.curA * 100 + 0.5) / 100
+  local race = session.race
+  if session.demo or (race.mode ~= "trial" and race.mode ~= "race") or race.phase ~= "racing" then return end
+  for _, view in ipairs(session.views) do
+    local car = view.car
+    if not car.finished then
+      view.ghostTimer = view.ghostTimer - dt
+      if view.ghostTimer <= 0 then
+        view.ghostTimer = 1 / 15
+        local f = view.ghostFrames
+        f[#f + 1] = math.floor(car.curX + 0.5)
+        f[#f + 1] = math.floor(car.curY + 0.5)
+        f[#f + 1] = math.floor(car.curA * 100 + 0.5) / 100
+      end
+    end
   end
 end
 
@@ -592,7 +695,10 @@ local function syncView(view, blend)
 
   local beta = math.max(-0.6, math.min(0.6, car.model.beta))
   local facing = a + beta * 0.55
-  local fullW, fullH = love.graphics.getDimensions()
+  local fullW, fullH = 1280, 720
+  if love.graphics and love.graphics.getDimensions then
+    fullW, fullH = love.graphics.getDimensions()
+  end
   local _, _, sw, sh = viewRect(view.index, fullW, fullH)
   local base = math.min(fullW / 1280, fullH / 720) * (session.split and SPLIT_ZOOM or 1)
   local framing = ZOOM[settings.zoom] or ZOOM.near
@@ -660,6 +766,7 @@ local function updateFinish(dt)
   for _, view in ipairs(session.views) do clock = math.min(clock, view.finishClock) end
   session.finishClock = clock
   session.paused = false
+  rm.commitRecords()
   touch.reset()
   rumble.stop()
 end
@@ -791,6 +898,7 @@ function rm.update(dt)
   session.accumulator = math.min(session.accumulator + dt, DT * config.MAX_STEPS_PER_FRAME)
   while session.accumulator >= DT do
     local lightsBefore = hud.lightsOn(race)
+    recordGhost(DT)
     race:step(DT)
     session.accumulator = session.accumulator - DT
     processImpacts()
@@ -824,9 +932,10 @@ function rm.update(dt)
     updatePaceNote(view)
     updateCamera(view, dt)
   end
-  recordGhost(dt)
-  for _, car in ipairs(race.cars) do car_view.updateFx(car, dt) end
-  vfx.update(dt)
+  if love.graphics then
+    for _, car in ipairs(race.cars) do car_view.updateFx(car, dt) end
+    vfx.update(dt)
+  end
 
   local song = radio.update()
   if song then rm.setToast("ON AIR  " .. song, colors.marshal, 3) end
@@ -861,20 +970,21 @@ local function withCamera(sw, sh, fn, cam)
   love.graphics.pop()
 end
 
-local function drawGhost(env)
+local function drawGhost(env, viewCar)
   local frames = session.ghost
   local race = session.race
   if not frames or #frames < 6 or race.phase ~= "racing" then return end
-  local t = (race.time - race.player.lapStart) * 15
+  local ref = viewCar or race.player
+  local t = (race.time - ref.lapStart) * 15
   local i = math.floor(t)
-  local n = #frames / 3
-  if i >= n - 1 then return end
+  local n = math.floor(#frames / 3)
+  if i < 0 or i >= n - 1 then return end
   local f = t - i
   local a = i * 3
   local x = frames[a + 1] + (frames[a + 4] - frames[a + 1]) * f
   local y = frames[a + 2] + (frames[a + 5] - frames[a + 2]) * f
   local angle = frames[a + 3] + ((frames[a + 6] - frames[a + 3] + math.pi) % (math.pi * 2) - math.pi) * f
-  car_view.draw(race.player, x, y, angle, 0.35)
+  car_view.draw(session.ghostCar or ref, x, y, angle, 0.35)
 end
 
 local function lightsState()
@@ -899,14 +1009,14 @@ local function inView(car, cam, reach)
   return dx * dx + dy * dy < reach * reach
 end
 
-local function drawWorld(sw, sh, cam)
+local function drawWorld(sw, sh, cam, viewCar)
   local race, env, scene = session.race, session.env, session.scene
   local reach = viewReach(cam, sw, sh) + BODY_REACH
   withCamera(sw, sh, function()
     scene:drawGround()
     skids.draw()
     if race.cones then scene:drawCones(race.cones) end
-    drawGhost(env)
+    drawGhost(env, viewCar)
     for _, car in ipairs(race.cars) do
       if inView(car, cam, reach) then car_view.drawShadow(car, car.drawX, car.drawY, car.drawA, env) end
     end
@@ -934,7 +1044,7 @@ local function drawView(view, x, y, sw, sh)
   local boosting = car.model.boostState == "active"
 
   post.begin(sw, sh)
-  drawWorld(sw, sh, cam)
+  drawWorld(sw, sh, cam, car)
 
   if env.lights then
     post.drawLights(env.ambient, function()

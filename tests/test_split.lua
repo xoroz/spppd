@@ -157,6 +157,70 @@ h.describe("two at one screen", function()
   end)
 end)
 
+h.describe("two-player ghost records", function()
+  h.it("saves both players' best laps and ghosts after a 2-player race ends, and supports loading a ghost", function()
+    local rm = require("src/race_manager")
+    love.filesystem.remove("records.lua")
+    settings.load()
+    local entry = catalog.find("mirage")
+    local a, b = fakePad(1), fakePad(2)
+    local r1, r2 = input.splitReaders({ a, b })
+    local seedGhost = { 10, 20, 0.1, 15, 25, 0.2, 20, 30, 0.3 }
+
+    rm.start({
+      mode = "race",
+      entry = entry,
+      laps = 2,
+      opponents = 0,
+      spec = garage[1],
+      playerName = "P1",
+      player2 = { spec = garage[2], color = { 0, 1, 0 }, name = "P2" },
+      readers = { r1, r2 },
+      ghostEntry = { time = 50.0, ghost = seedGhost, car = garage[3].id, color = { 1, 1, 0 } },
+      startDelay = 0.05,
+    })
+    h.assertTrue(rm.isSplit(), "2-player split session started")
+    h.assertTrue(rm.ghost() == seedGhost, "loaded ghost is active in 2-player race")
+    rm.update(0.1) -- lights out
+    local race = rm.race()
+    local p1, p2 = race.players[1], race.players[2]
+
+    -- Lap 1: P1 runs 41.5s, P2 runs 39.2s
+    rm.update(0.2)
+    p1.lapsDone, p2.lapsDone = 1, 1
+    rm.onLap(p1, 41.5, true)
+    rm.onLap(p2, 39.2, true)
+    h.assertEq(#settings.topGhosts("mirage"), 0, "neither player's lap saved mid-race")
+
+    -- P1 finishes Lap 2 at 43.0s, but P2 hasn't finished yet
+    rm.update(0.2)
+    p1.lapsDone = 2
+    rm.onLap(p1, 43.0, true)
+    p1.finished, p1.finishTime = true, 84.5
+    race:onPlayerFinished(p1)
+    rm.update(0.05)
+    h.assertTrue(not rm.isFinished(), "waiting for P2 to finish")
+    h.assertEq(#settings.topGhosts("mirage"), 0, "still not saved until race ends for both players")
+
+    -- P2 finishes Lap 2 at 42.0s -> race ends for both!
+    p2.lapsDone = 2
+    rm.onLap(p2, 42.0, true)
+    p2.finished, p2.finishTime = true, 81.2
+    race:onPlayerFinished(p2)
+    rm.update(0.05)
+
+    h.assertTrue(rm.isFinished(), "2-player race finished")
+    local top = settings.topGhosts("mirage")
+    h.assertEq(#top, 2, "both P1 and P2 best laps saved after 2-player race end")
+    h.assertEq(top[1].time, 39.2, "P2's faster Lap 1 is #1")
+    h.assertEq(top[1].name, "P2")
+    h.assertEq(top[2].time, 41.5, "P1's faster Lap 1 is #2")
+    h.assertEq(top[2].name, "P1")
+    rm.stop()
+    love.filesystem.remove("records.lua")
+  end)
+end)
+
 h.describe("each driver's own hands", function()
   h.it("a pad's reader hears only that pad", function()
     input.clear()

@@ -113,3 +113,34 @@ h.describe("tatus", function()
     h.assertBetween(stats.of(tatus).handling.score, 0.35, 0.65, "handling")
   end)
 end)
+
+h.describe("load ghost", function()
+  local rm = require("src/race_manager")
+  local menu = require("src/menu")
+  local settings = require("src/settings")
+
+  local function trialFromMenu(selected)
+    settings.mode, settings.track, settings.selectedGhost = "trial", "mirage", selected
+    menu.startRace()
+    local race = rm.race()
+    race.player.driver = AI.new(race.track, race.player, { skill = 0.95 })
+    local t = 0
+    while race.player.lapsDone < 2 and t < 300 do rm.update(1 / 30) t = t + 1 / 30 end
+    h.assertTrue(race.player.lapsDone >= 2, "two laps done")
+    local ghost = rm.ghost()
+    rm.stop()
+    return ghost
+  end
+
+  h.it("OFF shows no ghost in time trial, even after a best lap", function()
+    h.assertEq(trialFromMenu(0), nil)
+  end)
+
+  h.it("a chosen ghost still races alongside", function()
+    local frames = {}
+    for i = 1, 60 do frames[#frames + 1] = i frames[#frames + 1] = i frames[#frames + 1] = 0 end
+    settings.submitLap("mirage", "tatus", 59.5, frames, "clean", { hue = 1, name = "TEST" })
+    h.assertTrue(#settings.topGhosts("mirage") >= 1, "a ghost to pick")
+    h.assertTrue(trialFromMenu(1) ~= nil, "ghost #1 loaded")
+  end)
+end)
