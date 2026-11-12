@@ -139,12 +139,18 @@ type savedRoom struct {
 	Raced  time.Time
 	Racers int
 	Seats  []savedSeat
+	// Relay-made rooms only. Their votes aren't kept.
+	Kind   string    `json:",omitempty"`
+	Race   MatchRace `json:",omitzero"`
+	FillBy time.Time `json:",omitzero"`
 }
 
 type savedSeat struct {
-	Slot  int
-	Addr  string
-	Token string
+	Slot     int
+	Addr     string
+	Token    string
+	Features int `json:",omitempty"`
+	Driver   int `json:",omitempty"` // the driver it signed in as
 }
 
 func comesBack(room *Room) bool {
@@ -163,10 +169,15 @@ func (r *Relay) saveRooms() []savedRoom {
 			continue
 		}
 		saved := savedRoom{Code: room.Code, Proto: room.Proto, Since: room.Since,
-			Locked: room.Locked, Raced: room.Raced, Racers: room.Racers}
+			Locked: room.Locked, Raced: room.Raced, Racers: room.Racers,
+			Kind: room.Kind, Race: room.Race, FillBy: room.FillBy}
 		for _, member := range room.members() {
 			if member.Token != "" {
-				saved.Seats = append(saved.Seats, savedSeat{Slot: member.Slot, Addr: member.Addr.String(), Token: member.Token})
+				seat := savedSeat{Slot: member.Slot, Addr: member.Addr.String(), Token: member.Token, Features: member.Features}
+				if member.Account != nil {
+					seat.Driver = member.Account.ID
+				}
+				saved.Seats = append(saved.Seats, seat)
 			}
 		}
 		if len(saved.Seats) > 0 {
@@ -189,19 +200,28 @@ func (r *Relay) RestoreRooms(rooms []savedRoom) (restored, drivers int) {
 		if !validCode(saved.Code) || !validProto(saved.Proto) || r.rooms[saved.Code] != nil {
 			continue
 		}
+		if saved.Kind != "" && saved.Kind != quickKind {
+			continue
+		}
 		room := &Room{Code: saved.Code, Proto: saved.Proto, Since: saved.Since,
-			Locked: saved.Locked, Raced: saved.Raced, Racers: saved.Racers}
+			Locked: saved.Locked, Raced: saved.Raced, Racers: saved.Racers,
+			Kind: saved.Kind, Race: saved.Race, FillBy: saved.FillBy}
 		for _, seat := range saved.Seats {
 			addr, err := net.ResolveUDPAddr("udp", seat.Addr)
 			if err != nil || seat.Slot < 1 || seat.Slot > maxRoomPlayers || room.Seats[seat.Slot-1] != nil ||
 				seat.Token == "" || r.clients[addr.String()] != nil {
 				continue
 			}
-			r.seat(room, seat.Slot, addr, seat.Token)
+			client := r.seat(room, seat.Slot, addr, seat.Token)
+			// Drivers are loaded first, so a deleted one is simply gone.
+			client.Features, client.Account = seat.Features, r.accounts[seat.Driver]
 			drivers++
 		}
 		if len(room.members()) > 0 {
 			r.rooms[room.Code] = room
+			if room.Kind != "" && !room.Locked {
+				r.fill(room)
+			}
 			restored++
 		}
 	}

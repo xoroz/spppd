@@ -10,6 +10,8 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -146,7 +148,10 @@ func securityHeaders(h http.Header) {
 	h.Set("Content-Security-Policy", "frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'")
 	h.Set("X-Frame-Options", "DENY")
 	h.Set("X-Content-Type-Options", "nosniff")
-	h.Set("Referrer-Policy", "no-referrer")
+	// same-origin, not no-referrer: no-referrer makes a browser send "Origin:
+	// null" on its own form posts, and over plain http, where there is no
+	// Sec-Fetch-Site, the cross-origin check then refuses them.
+	h.Set("Referrer-Policy", "same-origin")
 }
 
 type userKey struct{}
@@ -163,8 +168,12 @@ type pageData struct {
 	Viewer    viewer
 	Users     []User
 	Analytics *analyticsView
-	Error     string
-	Notice    string
+	// The drivers section: a search and what it found.
+	Drivers     []DriverView
+	DriverTotal int
+	DriverQuery string
+	Error       string
+	Notice      string
 }
 
 type analyticsView struct {
@@ -239,6 +248,15 @@ func newDashboard(relay *Relay, store *Store, analyticsDays int) http.Handler {
 		relay.Unban(r.FormValue("ip"))
 	}))
 
+	mux.HandleFunc("/drivers", d.authed(func(w http.ResponseWriter, r *http.Request) {
+		data := d.data(r)
+		d.findDrivers(r, &data)
+		d.render(w, "drivers", data)
+	}))
+	mux.HandleFunc("/drivers/rename", d.driversAction(func(id int, by string) bool { return relay.ResetDriverName(id, by) }))
+	mux.HandleFunc("/drivers/ban", d.driversAction(func(id int, by string) bool { return relay.BanDriver(id, true, by) }))
+	mux.HandleFunc("/drivers/unban", d.driversAction(func(id int, by string) bool { return relay.BanDriver(id, false, by) }))
+
 	mux.HandleFunc("/users/add", d.usersAction(d.addUser))
 	mux.HandleFunc("/users/password", d.usersAction(d.changePassword))
 	mux.HandleFunc("/users/delete", d.usersAction(d.deleteUser))
@@ -289,6 +307,7 @@ func (d *dashboard) data(r *http.Request) pageData {
 func (d *dashboard) full(r *http.Request) pageData {
 	data := d.data(r)
 	data.Users, _ = d.store.Users()
+	d.findDrivers(r, &data)
 	if d.relay.AnalyticsOn() {
 		data.Analytics = d.analytics()
 	}
@@ -363,6 +382,29 @@ func (d *dashboard) action(section string, run func(r *http.Request, data *pageD
 		}
 		data.Snapshot = d.relay.Snapshot()
 		d.render(w, section, data)
+	})
+}
+
+func (d *dashboard) findDrivers(r *http.Request, data *pageData) {
+	data.DriverQuery = strings.TrimSpace(r.FormValue("q"))
+	data.Drivers, data.DriverTotal = d.relay.FindDrivers(data.DriverQuery)
+}
+
+// driversAction changes one driver, then shows the drivers section again with
+// the same search.
+func (d *dashboard) driversAction(run func(id int, by string) bool) http.HandlerFunc {
+	return d.authed(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST only", http.StatusMethodNotAllowed)
+			return
+		}
+		data := d.data(r)
+		id, err := strconv.Atoi(r.FormValue("id"))
+		if err != nil || !run(id, orLocal(data.Viewer.Name)) {
+			data.Error = "That driver couldn't be changed. Try again."
+		}
+		d.findDrivers(r, &data)
+		d.render(w, "drivers", data)
 	})
 }
 

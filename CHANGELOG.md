@@ -1,42 +1,116 @@
 # Changelog
 
-## 3.1.0 (2026-11-10)
+## 3.5.0 (2026-11-09)
 
-### Ghosts and best laps
+3.5.0 races 3.0 to 3.4. No server change.
+
+### Phones
+
+- Steering Feel in CONTROLS makes touch steering gentler or sharper: how the stick
+  answers around the centre, and how fast the arrows turn the wheel. Medium is as before.
+- The first launch is much quicker: the phone's cores share building the sounds. On a
+  Galaxy A04 they're ready after 5 seconds instead of 18.
+- The HUD, touch controls and menus keep clear of a camera notch.
+- Android 5.0 is now the oldest Android SPPPD runs on, down from 4.1.
+
+## 3.4.0 (2026-11-09)
+
+3.4.0 races 3.0 to 3.3. No server change.
+
+### Driving
+
+- Arcade drifting responds more. DRIFT kicks the tail out sooner, a held drift sits
+  wider, at about 45 degrees instead of 31, and follows the steering sooner, and the
+  steering arrows and keys turn in faster during a drift. Sport and Sim are unchanged.
+- Boost still pulls a drift straight: in a one-second save, the car slides 6.4 m
+  sideways instead of 9.2 m on tarmac, and 7.3 m instead of 9.9 m on grass.
+
+## 3.3.0 (2026-11-08)
+
+### Tracks
+
+- Sponsor boards line the fences, like at a real circuit. The sponsors are made up
+  for now; real ones may come later.
+
+## 3.2.3 (2026-11-08)
+
+### Changed
+
+- Pausing during boost freezes its streaks of air too. They, the slipstream's air
+  and the neon glow kept moving while the race stood still.
+
+## 3.2.2 (2026-11-08)
+
+### Android
+
+- SPPPD is now built to go on F-Droid, which builds it from source.
+- **The Android app is new to your phone**: its package changed to `xyz.spppd`, to
+  match spppd.xyz. Install this version and it sits beside the old SPPPD rather than
+  updating it, and starts with fresh settings, records and tracks. Uninstall the old
+  one when you're done with it. A driver name comes back with its recovery code, so
+  copy that from PROFILE first.
+- A pixel car icon instead of LÖVE's heart.
+- It no longer asks for the microphone, which it never used.
+
+## 3.2.1 (2026-11-08)
+
+### Online
+
+- COPY RECOVERY CODE in PROFILE puts the code on the clipboard. On the other device,
+  I HAVE A RECOVERY CODE fills itself in when the code is copied there.
+- Text fields take pasted text: ctrl+V on a computer, or paste on a phone's keyboard.
+  Spaces and line breaks in a pasted code are dropped.
+
+## 3.2.0 (2026-11-08)
+
+3.2 still races 3.0 and 3.1. Driver names need a server from 3.2 on: the official one
+is. On an older one the game says it may not have drivers yet.
+
+### Online
+
+- PROFILE on the ONLINE screen picks a driver name, which the others see in the lobby,
+  the race and the results instead of P2. There's no email and no password: the game
+  keeps a key on this device and proves it holds it. SHOW RECOVERY CODE gives a code
+  that signs another device in as you. Rename once every 30 days, sign a device out, or
+  delete the driver. The privacy policy and terms say what the server keeps, and the
+  name rules.
+
+### Driving
+
+- Boost carries the car where its nose points. Point it away from trouble and boost
+  pulls a slide straight: in a one-second save, the car slides 6.0 m sideways instead
+  of 8.4 m on tarmac, and 7.1 m instead of 10.4 m on grass, and keeps its speed. It
+  doesn't turn the car any tighter on grip. Grass and gravel drag is halved under boost.
+
+## 3.1.0 (2026-11-07)
+
+3.1 still races 3.0 in rooms by code. Quick match needs 3.1, and a server from 3.1
+on: the official one is. On an older one the game says it may not have quick match.
+
+### Online
+
+- QUICK MATCH on the ONLINE screen puts you in a race with whoever else is looking, with
+  no room code to share. The server picks a built-in track, laps for about three
+  minutes, and the time of day. The race starts by itself 15 seconds after a second
+  driver arrives, or 3 seconds after a fourth. Alone, it waits and shows how many are
+  online. FIND ANOTHER on the results looks for the next race in one press.
+- VOTE OUT in the pause menu of a quick match of three or more removes a driver who
+  spoils the race once two others agree. Everyone sees the votes coming, the driver
+  they're about too. Whoever is voted out can't look for a race for 2 minutes, longer
+  each time that day, and isn't matched with the voters for half an hour.
+- Every online race uses each driver's own handling and gearbox, set on the ONLINE
+  screen, instead of ARCADE for everyone. The lobby and the results show how each
+  driver set up.
+- The status page shows how many drivers are looking for a race.
+
+### Ghosts, browser & TexNGo additions (3.1.0-texngo)
 
 - LOAD GHOST in race and time trial setup races you against any of the five fastest
-  laps on that track, each in its driver's car and paint. It reads NONE until a lap is
-  recorded; press it for the list, or Left and Right to cycle. OFF means no ghost.
-- Both drivers' fastest laps are recorded, in one- and two-player races, and saved when
-  the race ends. The top five per track are shared through apps.texngo.it by the browser
-  and desktop builds, and kept in `records.lua` when that can't be reached.
-
-### Handling and cars
-
-- EASY handling: ARCADE with 50% more grip on every car. The computer drivers stay on
-  ARCADE, so it's an advantage for whoever picks it. Online races still use ARCADE.
-- Cars slide less on ARCADE and EASY: the front wheels line up with where the car is
-  going and stability control catches a slide sooner. On a lap of Mugello the slip angle
-  is about a fifth lower and real slides are mostly gone. Handbrake drifts are unchanged.
-- Race setup shows each car's SPEED, ACCEL, BRAKE, HANDLING and TIRES as bars with the
-  real numbers under them: top speed, 0-100 km/h, 100-0 km/h in metres, and cornering g.
-  They're measured from the game's own physics, so they always match how the car drives.
-- New cars: GT RACER, RALLY KING, PROTOTYPE, DRIFT KING and TATUS, a junior single-seater
-  with the grippiest tyres here and middling handling that tops out around 215 km/h.
-
-### Tracks and menus
-
-- New tracks traced from OpenStreetMap: Mugello and Barcelona.
-- QUICK RACE, first in the main menu, starts the last setup in one press.
-- The 200 and 100 brake boards are gone, with their setting. Pace notes stay, and now
-  show how far a corner turns (90°, 180° HAIRPIN).
-
-### Browser
-
-- Play in the browser (`./build.sh`, love.js). A phone gets the touch controls and big
-  menus, with GAS and BRAKE buttons when Auto Gas is off.
-- The apps.texngo.it copy uses the same build, so it fills the browser window and the
-  first click lands where it's aimed, plus the bridge for the shared best laps.
+  laps on that track, each in its driver's car and paint.
+- Both drivers' fastest laps are recorded and shared through apps.texngo.it by the
+  browser and desktop builds, falling back to `records.lua` offline.
+- EASY handling, car stats bars, TATUS, GT RACER, RALLY KING, PROTOTYPE, DRIFT KING,
+  Mugello, Barcelona, QUICK RACE, and browser build (`./build.sh`, love.js).
 
 ## 3.0.0 (2026-11-07)
 

@@ -36,9 +36,13 @@ local DRIFT_SETTLE = 3         -- how firmly a released drift gives up its rotat
 -- A held drift: full steering asks for this slip angle (rad), and the tail is
 -- sprung (per s^2) and damped (per s) towards it, so it settles instead of
 -- swinging out, snapping straight and swinging out again.
-local DRIFT_HOLD_BETA = 0.55
+local DRIFT_HOLD_BETA = 0.7
 local DRIFT_LET_GO = 2.5         -- damps the tail on its way back after a long hold (per s)
-local DRIFT_HOLD_PULL, DRIFT_HOLD_DAMP = 12, 7
+local DRIFT_HOLD_PULL, DRIFT_HOLD_DAMP = 18, 8.5
+local DRIFT_ENTRY = 15           -- how fast the handbrake takes the car into a drift (per s)
+local DRIFT_REAR_CUT = 0.55      -- share of rear grip a full drift takes away
+local DRIFT_LOCK = 0.55          -- share of the extra steering lock a drift opens up
+local DRIFT_KEYS = 1.5           -- key and arrow steering winds on this much faster in a drift
 local REV_RISE, REV_FALL = 3, 1.5  -- how quickly a free engine gains and sheds rpm (per s)
 -- Share of redline where the limiter cuts in and lets go, and the share above
 -- which it's in charge. Far above the launch window, so that stays easy to hold.
@@ -49,6 +53,16 @@ local LAUNCH_PUSH = 7.5           -- extra pull from a perfect launch (m/s^2), f
 local LAUNCH_TIME = 1.2
 local BOOST_RATED_SPEED = 22    -- speed (m/s) at which the push equals boostPower
 local BOOST_MIN_TANK = 0.25     -- seconds of boost needed to light it again
+-- Boost takes the car where its nose points: the way it's travelling is swung
+-- towards the nose, faster the further apart they are, up to this much
+-- sideways g. Speed is kept, so a slide becomes forward speed, not scrub.
+local BOOST_BITE_RATE = 4       -- per second, times the slip angle
+local BOOST_BITE_MAX = 0.9      -- g
+-- A drift is a bigger slide than the tyres alone get into, so boost gets this
+-- much more to pull one straight with, fading out with the drift.
+local BOOST_BITE_DRIFT = 2.0    -- g
+local BOOST_BITE_MIN_SPEED = 5  -- m/s
+local BOOST_LOOSE = 0.5         -- share of the grass and gravel drag left while boosting
 local SLIDE_REFILL = 3          -- how many times faster the tank fills in a slide
 -- Hard cornering on the racing line reaches 18 degrees; a held drift sits past 25.
 local SLIDE_MIN_BETA = math.rad(20)
@@ -277,13 +291,14 @@ end
 
 -- A key press is all-or-nothing, so digital steering winds on over time: a
 -- tap at speed moves the wheel a little, holding the key takes it to the limit.
-local function filterKeyboardSteer(c, wanted, speed, dt)
+local function filterKeyboardSteer(c, wanted, speed, dt, scale)
   local current = c.steerInput
   local rate
   if wanted == 0 or wanted * current < 0 then
     rate = KEY_STEER_RELEASE
   else
     rate = KEY_STEER_RATE * c.assist.keyRate / (1 + speed / KEY_STEER_FADE)
+    rate = rate * (1 + (DRIFT_KEYS - 1) * c.drift * c.assist.drift) * (scale or 1)
   end
   local delta = max(-rate * dt, min(rate * dt, wanted - current))
   c.steerInput = current + delta
@@ -297,7 +312,7 @@ local function updateDrift(c, input, vx, dt)
   local rate = 1
   local target = 0
   if input.handbrake and vx > DRIFT_MIN_SPEED then
-    target, rate = 1, 9
+    target, rate = 1, DRIFT_ENTRY
   elseif abs(c.beta) < 0.15 or input.throttle < 0.5 then
     rate = 2.5
   end
@@ -312,10 +327,10 @@ local function updateSteering(c, input, vx, vy, r, dt)
   local lock = spec.steerLock
   local drift = c.drift * assist.drift
   local maxAngle = dynamics.steerLimit(c, speed)
-  maxAngle = maxAngle + (lock - maxAngle) * drift * 0.4
+  maxAngle = maxAngle + (lock - maxAngle) * drift * DRIFT_LOCK
   local steerInput = input.steer
   if input.keyboard then
-    steerInput = filterKeyboardSteer(c, steerInput, speed, dt)
+    steerInput = filterKeyboardSteer(c, steerInput, speed, dt, input.steerRate)
   else
     c.steerInput = steerInput
   end
@@ -661,11 +676,12 @@ function dynamics.step(c, input, vx, vy, r, dt)
       local forgiven = assist.offroad
       grip = grip + (spec.grip * assist.grip - grip) * forgiven
       local penalty = (1 - forgiven) * spec.looseDrag
+      if boosting then penalty = penalty * BOOST_LOOSE end
       roll = ASPHALT_ROLL + (roll - ASPHALT_ROLL) * penalty
       drag = drag * penalty
     end
     -- A drifting tail keeps enough grip to hold the angle, not to stop it.
-    if not w.front then grip = grip * (1 - drift * 0.45) end
+    if not w.front then grip = grip * (1 - drift * DRIFT_REAR_CUT) end
 
     local loadRatio = w.fz / nominalLoad
     local mu = grip * max(0.6, 1 - LOAD_SENSITIVITY * (loadRatio - 1))
@@ -830,6 +846,15 @@ function dynamics.step(c, input, vx, vy, r, dt)
   -- traction control just where it's wanted, in low gears and out of corners.
   if boosting and not c.reverse then
     fxTotal = fxTotal + spec.boostPower / BOOST_RATED_SPEED
+    -- The bite: a push across the direction of travel, towards the nose. It
+    -- leaves the nose alone, so the driver still has to point it somewhere.
+    if vx > 0 and speed > BOOST_BITE_MIN_SPEED then
+      local most = (BOOST_BITE_MAX + BOOST_BITE_DRIFT * drift) * G
+      local bite = spec.mass * min(most, speed * BOOST_BITE_RATE * abs(beta))
+      if beta < 0 then bite = -bite end
+      fxTotal = fxTotal + bite * vy / speed
+      fyTotal = fyTotal - bite * vx / speed
+    end
   end
 
   c.slip = slipSum / accSum

@@ -5,6 +5,8 @@ local settings = require("src/settings")
 local ui = require("src/ui")
 
 local SW, SH = 1280, 720
+-- The middle of the stick's box, set by fresh().
+local CX, CY
 
 local function fresh(mode)
   input.clear()
@@ -14,6 +16,9 @@ local function fresh(mode)
   settings.touchSteer = "stick"
   settings.gearbox = "auto"
   settings.touchSize = "medium"
+  settings.touchFeel = "medium"
+  local rest = touch.layout(SW, SH).rest
+  CX, CY = rest.x, rest.y
   return { steer = 0, throttle = 0, brake = 0 }
 end
 
@@ -74,38 +79,99 @@ h.describe("touch", function()
     ui.mobile = false
   end)
 
-  h.it("the stick appears where the thumb lands", function()
+  h.it("the stick stays in its corner and the knob follows the thumb", function()
     fresh()
-    touch.pressed(1, 200, 500, SW, SH)
-    h.assertEq(touch.stick.baseX, 200)
-    h.assertEq(touch.stick.baseY, 500)
-    h.assertEq(apply().steer, 0, "touching alone doesn't steer")
-    touch.moved(1, 280, 500)
+    local r = touch.layout(SW, SH).radius
+    touch.pressed(1, CX, CY, SW, SH)
+    h.assertEq(touch.stick.baseX, CX)
+    h.assertEq(touch.stick.baseY, CY)
+    h.assertEq(apply().steer, 0, "touching the middle doesn't steer")
+    touch.moved(1, CX + r * 0.8, CY)
     h.assertTrue(apply().steer > 0.4, "right is right")
-    touch.moved(1, 120, 500)
+    touch.moved(1, CX - r * 0.8, CY)
     h.assertTrue(apply().steer < -0.4, "left is left")
+    h.assertEq(touch.stick.baseX, CX, "the box didn't move")
     touch.released(1)
     h.assertEq(touch.stick, nil, "gone with the thumb")
+  end)
+
+  h.it("a thumb landing off centre in the box steers at once", function()
+    fresh()
+    local r = touch.layout(SW, SH).radius
+    touch.pressed(1, CX + r, CY, SW, SH)
+    h.assertEq(apply().steer, 1)
+  end)
+
+  h.it("a thumb away from the box doesn't take the stick", function()
+    fresh()
+    touch.pressed(1, 400, 300, SW, SH)
+    h.assertEq(touch.stick, nil)
+    h.assertEq(apply().steer, 0)
   end)
 
   h.it("steers gently around the centre and fully at the edge", function()
     fresh()
     local r = touch.layout(SW, SH).radius
-    touch.pressed(1, 200, 500, SW, SH)
-    touch.moved(1, 200 + r * 0.25, 500)
+    touch.pressed(1, CX, CY, SW, SH)
+    touch.moved(1, CX + r * 0.25, CY)
     h.assertBetween(apply().steer, 0.01, 0.2, "a quarter of the way")
-    touch.moved(1, 200 + r, 500)
+    touch.moved(1, CX + r, CY)
     h.assertEq(apply().steer, 1, "full lock")
   end)
 
-  h.it("the base follows a thumb past the edge, so turning back is instant", function()
+  h.it("steering feel bends the stick's response, and full lock stays full lock", function()
+    local r = touch.layout(SW, SH).radius
+    local quarter, edge = {}, {}
+    for _, feel in ipairs({ "low", "medium", "high" }) do
+      fresh()
+      settings.touchFeel = feel
+      touch.pressed(1, CX, CY, SW, SH)
+      touch.moved(1, CX + r * 0.25, CY)
+      quarter[feel] = apply().steer
+      touch.moved(1, CX + r, CY)
+      edge[feel] = apply().steer
+    end
+    h.assertTrue(quarter.low < quarter.medium and quarter.medium < quarter.high,
+      string.format("a quarter push: %.2f %.2f %.2f", quarter.low, quarter.medium, quarter.high))
+    for feel, v in pairs(edge) do h.assertEq(v, 1, feel .. " full lock") end
+    fresh()
+  end)
+
+  h.it("steering feel winds the arrows on slower or faster, and leaves keys alone", function()
+    local dynamics = require("src/sim/dynamics")
+    local garage = require("src/entities/garage")
+    local function windOn(feel)
+      fresh()
+      settings.touchSteer = "buttons"
+      settings.touchFeel = feel
+      touch.pressed(1, 20, 300, SW, SH)
+      local t = apply()
+      local c = dynamics.new(garage[1], "arcade")
+      for _ = 1, 6 do dynamics.step(c, t, 30, 0, 0, 1 / 60) end
+      touch.released(1)
+      return math.abs(c.steerInput), t.steerRate
+    end
+    local low, lowRate = windOn("low")
+    local medium, mediumRate = windOn("medium")
+    local high = windOn("high")
+    h.assertTrue(low < medium and medium < high, string.format("after 0.1 s: %.3f %.3f %.3f", low, medium, high))
+    h.assertEq(mediumRate, 1, "medium is as it was")
+    h.assertTrue(lowRate < 1, "low winds on slower")
+    fresh()
+    h.assertEq(apply().steerRate, nil, "the stick and the keyboard don't use it")
+  end)
+
+  h.it("the box stays put when the thumb goes past the edge", function()
     fresh()
     local r = touch.layout(SW, SH).radius
-    touch.pressed(1, 200, 500, SW, SH)
-    touch.moved(1, 200 + r * 3, 500)
-    h.assertEq(touch.stick.x, 1)
-    touch.moved(1, 200 + r * 2, 500)
-    h.assertEq(touch.stick.x, 0, "one radius back is the centre, not still full lock")
+    touch.pressed(1, CX, CY, SW, SH)
+    touch.moved(1, CX + r * 3, CY - r * 3)
+    h.assertEq(touch.stick.x, 1, "full lock, no further")
+    h.assertEq(touch.stick.y, 1, "full gas, no further")
+    h.assertEq(touch.stick.baseX, CX)
+    h.assertEq(touch.stick.baseY, CY)
+    touch.moved(1, CX, CY)
+    h.assertEq(touch.stick.x, 0, "back in the middle is straight ahead")
   end)
 
   h.it("auto gas drives until the stick pulls down", function()
@@ -113,8 +179,8 @@ h.describe("touch", function()
     local r = touch.layout(SW, SH).radius
     local t = apply()
     h.assertEq(t.throttle, 1, "no thumb on the stick yet")
-    touch.pressed(1, 200, 500, SW, SH)
-    touch.moved(1, 200, 500 + r)
+    touch.pressed(1, CX, CY, SW, SH)
+    touch.moved(1, CX, CY + r)
     t = apply()
     h.assertEq(t.brake, 1)
     h.assertEq(t.throttle, 0, "the brake lifts the gas, so the car can reverse")
@@ -123,8 +189,8 @@ h.describe("touch", function()
   h.it("steering doesn't brake by accident", function()
     fresh()
     local r = touch.layout(SW, SH).radius
-    touch.pressed(1, 200, 500, SW, SH)
-    touch.moved(1, 200 + r, 500 + r * 0.2)
+    touch.pressed(1, CX, CY, SW, SH)
+    touch.moved(1, CX + r, CY + r * 0.2)
     local t = apply()
     h.assertEq(t.steer, 1)
     h.assertEq(t.brake, 0)
@@ -134,8 +200,8 @@ h.describe("touch", function()
   h.it("full lock and full brake work together", function()
     fresh()
     local r = touch.layout(SW, SH).radius
-    touch.pressed(1, 200, 500, SW, SH)
-    touch.moved(1, 200 - r, 500 + r)
+    touch.pressed(1, CX, CY, SW, SH)
+    touch.moved(1, CX - r, CY + r)
     local t = apply()
     h.assertEq(t.steer, -1)
     h.assertEq(t.brake, 1)
@@ -146,15 +212,15 @@ h.describe("touch", function()
     settings.autoGas = false
     local r = touch.layout(SW, SH).radius
     h.assertEq(apply().throttle, 0, "no gas by itself")
-    touch.pressed(1, 200, 500, SW, SH)
-    touch.moved(1, 200, 500 - r)
+    touch.pressed(1, CX, CY, SW, SH)
+    touch.moved(1, CX, CY - r)
     h.assertEq(apply().throttle, 1)
     settings.autoGas = true
   end)
 
   h.it("a second finger on the left doesn't steal the stick", function()
     fresh()
-    touch.pressed(1, 200, 500, SW, SH)
+    touch.pressed(1, CX, CY, SW, SH)
     touch.pressed(2, 400, 300, SW, SH)
     h.assertEq(touch.stick.id, 1)
     touch.released(2)
@@ -165,8 +231,8 @@ h.describe("touch", function()
     fresh()
     local r = touch.layout(SW, SH).radius
     local b = button("handbrake")
-    touch.pressed(1, 200, 500, SW, SH)
-    touch.moved(1, 200 + r, 500)
+    touch.pressed(1, CX, CY, SW, SH)
+    touch.moved(1, CX + r, CY)
     touch.pressed(2, b.x, b.y, SW, SH)
     local t = apply()
     h.assertTrue(t.handbrake, "drift held")
@@ -179,9 +245,9 @@ h.describe("touch", function()
   h.it("only a real push on the stick revs at the lights, not auto gas", function()
     fresh()
     h.assertEq(touch.revs(), 0, "no thumb, no revs")
-    touch.pressed(1, 100, 200, SW, SH)
+    touch.pressed(1, CX, CY, SW, SH)
     h.assertEq(touch.revs(), 0, "resting thumb")
-    touch.moved(1, 100, 200 - touch.stick.radius)
+    touch.moved(1, CX, CY - touch.stick.radius)
     h.assertEq(touch.revs(), 1, "full push")
     touch.reset()
   end)
@@ -407,7 +473,7 @@ h.describe("touch", function()
   h.it("reset lets go of everything", function()
     fresh()
     local b = button("handbrake")
-    touch.pressed(1, 200, 500, SW, SH)
+    touch.pressed(1, CX, CY, SW, SH)
     touch.pressed(2, b.x, b.y, SW, SH)
     touch.reset()
     h.assertEq(touch.stick, nil)
@@ -507,16 +573,17 @@ h.describe("touch", function()
     settings.touch = "on"
   end)
 
-  h.it("touch size and opacity are saved", function()
+  h.it("touch size, opacity and steering feel are saved", function()
     fresh()
-    settings.touchSize, settings.touchOpacity = "large", 0.5
+    settings.touchSize, settings.touchOpacity, settings.touchFeel = "large", 0.5, "high"
     settings.save()
-    settings.touchSize, settings.touchOpacity = "medium", 1
+    settings.touchSize, settings.touchOpacity, settings.touchFeel = "medium", 1, "medium"
     settings.load()
     h.assertEq(settings.touchSize, "large")
     h.assertEq(settings.touchOpacity, 0.5)
+    h.assertEq(settings.touchFeel, "high")
     -- The visual tests read this file too, so it goes back to the defaults.
-    settings.touch, settings.touchSize, settings.touchOpacity = "auto", "medium", 1
+    settings.touch, settings.touchSize, settings.touchOpacity, settings.touchFeel = "auto", "medium", 1, "medium"
     settings.save()
   end)
 end)

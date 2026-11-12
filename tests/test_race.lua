@@ -34,7 +34,8 @@ end
 -- a thumb position, its braking a pull down, and auto gas does the rest.
 local function thumbOn(bot)
   local thumb = {}
-  local radius = touch.layout(1280, 720).radius
+  local layout = touch.layout(1280, 720)
+  local radius, rest = layout.radius, layout.rest
   local unCurve = function(steer)
     local curved = math.abs(steer) ^ (1 / 1.6) * 0.92 + 0.08
     return steer == 0 and 0 or curved * (steer > 0 and 1 or -1)
@@ -43,7 +44,7 @@ local function thumbOn(bot)
     bot:update(car, race, dt)
     local want = car.input
     local pull = want.brake > 0.05 and 0.3 + want.brake * 0.7 or 0
-    touch.moved(1, 200 + unCurve(want.steer) * radius, 500 + pull * radius)
+    touch.moved(1, rest.x + unCurve(want.steer) * radius, rest.y + pull * radius)
     input.applyTo(want, false)
     touch.applyTo(want)
   end
@@ -167,7 +168,8 @@ h.describe("race", function()
       input.clear()
       touch.reset()
       settings.touch, settings.autoGas = "on", true
-      touch.pressed(1, 200, 500, 1280, 720)
+      local rest = touch.layout(1280, 720).rest
+      touch.pressed(1, rest.x, rest.y, 1280, 720)
       for _, spec in ipairs(garage) do
         local r = botLaps(entry, spec, 2, { thumb = thumbOn, reaction = 0.08, skill = 0.9 })
         print(string.format("        %-10s %-15s lap %.1fs  off %.1fs  respawns %d  crashes %d",
@@ -464,12 +466,15 @@ h.describe("race", function()
     race:destroy()
   end)
 
-  h.it("online races ignore the local handling tier", function()
+  h.it("online, each driver keeps their own handling", function()
     local track = Track.new(catalog.builtin()[1].def)
     local race = Race.new({ mode = "race", track = track, laps = 1, seed = 3, assist = "sim",
-      online = { slot = 1, peers = { { slot = 2, spec = garage[2], state = function() end } } } })
-    h.assertEq(race.handling, "arcade")
-    h.assertEq(race.player.model.assist.grip, require("src/sim/dynamics").ASSISTS.arcade.grip)
+      online = { slot = 1, setup = "SIM MANUAL",
+        peers = { { slot = 2, spec = garage[2], state = function() end, setup = "ARCADE" } } } })
+    h.assertEq(race.handling, "sim")
+    h.assertEq(race.player.model.assist.grip, require("src/sim/dynamics").ASSISTS.sim.grip)
+    h.assertEq(race.player.setupText, "SIM MANUAL", "and the results can say how each drives")
+    h.assertEq(race.cars[2].setupText, "ARCADE")
     race:destroy()
   end)
 

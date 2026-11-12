@@ -21,6 +21,7 @@ local settings = {
   touchSteer = "stick",  -- or "buttons"
   touchSize = "medium",  -- "small", "medium" or "large"
   touchOpacity = 1,
+  touchFeel = "medium",  -- how sharply touch steering answers: "low", "medium" or "high"
   -- The browser build shows GAS and BRAKE buttons on a phone instead.
   autoGas = not (love.system and love.system.getOS() == "Web"),
   vibration = true,
@@ -104,6 +105,7 @@ local function serialize(value, indent)
   return nil
 end
 settings.serialize = serialize
+settings.loadTable = loadTable
 
 -- Clean records keep the key they always had. Open ones are their own table, so a
 -- cut lap never beats a clean one.

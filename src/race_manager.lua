@@ -16,6 +16,7 @@ local track_renderer = require("src/render/track_renderer")
 local car_view = require("src/render/car_view")
 local sprites = require("src/render/car_sprites")
 local hud = require("src/hud")
+local ui = require("src/ui")
 local minimap = require("src/minimap")
 local audio = require("src/audio")
 local radio = require("src/radio")
@@ -217,7 +218,7 @@ function rm.start(opts)
   local scene
   if love.graphics then
     if track then
-      scene = track_renderer.load(track, timeName)
+      scene = track_renderer.load(track, timeName, opts.entry and opts.entry.builtin and opts.entry.name or nil)
       minimap.load(track)
     else
       scene = track_renderer.loadApron(timeName)
@@ -836,6 +837,11 @@ local function updateOnline(dt)
       rm.setToast("CONNECTION LOST  GETTING BACK IN", colors.marshal, 4)
     elseif n.kind == "back" then
       rm.setToast("BACK ONLINE", colors.marshal, 3)
+    elseif n.kind == "vote" then
+      -- Everyone hears, the driver it's about too, so a vote is never a surprise.
+      local car = carInSeat(race, n.slot)
+      local who = n.slot == network.slot and "YOU" or (car and car.name) or ("P" .. n.slot)
+      rm.setToast(string.format("%s MAY BE VOTED OUT (%d/2)", who, n.count), colors.kerb, 4)
     else
       local car = carInSeat(race, n.slot)
       if car and not car.finished then
@@ -1120,7 +1126,8 @@ function rm.draw(sw, sh)
   rm.drawScene(sw, sh)
   if session.demo then return end
   if not session.split then
-    hud.draw(sw, sh, session.race, session, session.views[1])
+    -- Inside the safe area, so a camera notch doesn't cover the HUD or a button.
+    ui.inSafeArea(sw, sh, function(w, h) hud.draw(w, h, session.race, session, session.views[1]) end)
     return
   end
   for i, view in ipairs(session.views) do

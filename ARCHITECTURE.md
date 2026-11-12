@@ -1,6 +1,6 @@
 # SPPPD Architecture
 
-This describes the code as it stands at version 3.0.0 (2026-11-07). It explains how
+This describes the code as it stands at version 3.5.0 (2026-11-09). It explains how
 the game works and nothing else. `ROADMAP.md` holds what's agreed but not built.
 
 Numbers in the tables were measured from the code at `c88f172` (version 2.1.0) unless
@@ -94,7 +94,10 @@ each thing at a time:
 main.lua            LÖVE callbacks; chooses the game, --test, --perf or --visual
 conf.lua            Window and module setup; turns graphics off for --test
 Makefile            run, test*, server, deploy-relay, site*, deploy-site, zip, apk, ...
-android/apk.sh      Builds and signs the test APK
+android/apk.sh      Builds and signs the APK
+android/prepare.sh  Readies the love-android submodule for SPPPD; apk.sh and F-Droid run it
+android/luajit.sh   Rebuilds LuaJIT for Android from source, for F-Droid
+android/fdroid.yml  The F-Droid build recipe; the listing is in fastlane/
 config/deploy.yml   The website as the Kamal app, and the relay as its accessory
 bin/relay-deploy    Builds the relay and deploys it
 bin/site-deploy     Deploys the website
@@ -123,9 +126,12 @@ src/
   ai_controller.lua       AI driver
   race_manager.lua        The running session
   network_manager.lua     Client side of the relay protocol
+  account.lua             Drivers: keys, proofs, recovery codes, PROFILE's requests
 
   render/post.lua         Canvases, night lightmap, glow, final grade
   render/track_renderer.lua  Track to meshes; road, ground and gravel shaders
+  render/boards.lua       Sponsor boards along the fences: placement, meshes
+  sponsors.lua            Who is on the boards: the pool and sold spots
   sim/lot.lua             Freestyle's playground layout, as data
   render/car_view.lua     Draws cars, spawns tyre smoke and marks
   render/car_sprites.lua  Generates car sprites
@@ -138,6 +144,7 @@ src/
 
   audio.lua               Sound synthesis and the live mix
   sound_cache.lua         WAV cache in the save folder
+  sound_worker.lua        Thread that renders sounds on a first launch
   radio.lua               Player's own music, freestyle only
   lib/sfxr.lua            Third-party arcade effects synth (MIT)
   rumble.lua              Pad motors and phone buzzer
@@ -153,21 +160,25 @@ src/
 
 server/
   main.go                 Relay: rooms, forwarding, limits, sweeps, bans
+  match.go                Quick match: rooms the relay makes, its race, votes
+  drivers.go              Drivers: names, device keys, proofs, recovery
+  blocked_names.txt       Words a driver name can't hold, embedded
   dashboard.go, .html     Admin page
   htmx.min.js             htmx 2.0.4 (0BSD), embedded in the binary
-  *_test.go               33 tests
+  *_test.go               138 tests
 
 tests/
   run.lua, harness.lua    Headless runner
-  test_*.lua              Nine suites
+  test_*.lua              Fourteen suites
   flow.lua                Plays the real game through real input handlers
   flow_online.lua         The same online, against bots and a real relay
   visual.lua              Scripted screenshots and audio recording
   perf.lua                Frame timing
 ```
 
-`dist/` and `.backup/` are ignored by git. `dist/` also holds `love-android`, a
-1.1 GB compiled LÖVE that `make clean` deletes.
+`dist/` and `.backup/` are ignored by git. LÖVE for Android is the
+`android/love-android` submodule (11.5a); building it fills its `app/build` with
+about 1 GB.
 
 ---
 
@@ -195,7 +206,7 @@ keeps them, turns vsync off and uses the same test identity.
 `love.load` wraps the slow work in a coroutine, `loadGame`: compile shaders, generate
 textures, then load or render every sound. `love.update` resumes it once a frame, and
 the splash shows `LOADING` while it's alive. `audio.load` yields through `breathe()`
-at most every 1/30 s, so a slow phone keeps drawing frames during a first launch. The
+at most every 1/30 s, and every frame while threads render a first launch, so a slow phone keeps drawing frames during a first launch. The
 yield sits inside a `pcall`, which works because LuaJIT can yield across `pcall`.
 
 The splash timer starts only when loading finishes. Its first update plays the
@@ -390,7 +401,10 @@ EASY is ARCADE with `grip` × 1.5 (`dynamics.EASY_GRIP`); every other value is A
 
 FULL exists for the AI and the demo race. AI cars use ARCADE when the player is on EASY
 or ARCADE and FULL otherwise, because arcade grip is much higher and the grid wouldn't
-match. EASY's extra grip is the player's alone. Online races always use ARCADE.
+match. EASY's extra grip is the player's alone. Online, each driver uses their own tier
+and gearbox: another driver's car runs no tyre model on this screen (see Remote cars), so
+their handling changes nothing for anyone else, and slipstream `tow` follows the handling
+of the car being pulled. 3.0 games still force ARCADE on themselves.
 
 ### Surfaces
 
@@ -512,6 +526,16 @@ While active, the pedal is at least 0.75, and the car gets a force of
 control would otherwise cut it exactly where it's wanted, in low gears and out of
 corners.
 
+It also carries the car where its nose points, which is what saves a slide. A second
+force acts across the direction of travel, towards the nose, swinging the travel round
+at 4 times the slip angle per second, up to 0.9 g plus 2 g times `c.drift`, without
+changing the speed. A drift is a bigger slide than the tyres alone get into, and
+unwinds quickly on its own, so a boost save out of one needs the extra. It
+never turns the nose itself, so a turn on grip, where nose and travel already agree,
+is barely tighter (the test allows 12%), and the driver still has to point the car
+somewhere. Grass and gravel drag is halved under boost. Not removed, or a boosted cut
+across the grass would cost nothing.
+
 ### Stability control and drifting
 
 This is the most tuned part of the model. It applies when `esc > 0`, speed is over
@@ -529,16 +553,17 @@ in stages:
 5. **Settle on release:** letting go of a drift bleeds off rotation with both a yaw
    term and a damping term, which stops the tail swinging past centre.
 6. **Hold:** with the handbrake held and the steering into the slide, the tail is
-   sprung and damped towards `-steer × 0.55` rad. This replaced a catch that collapsed
+   sprung and damped towards `-steer × 0.7` rad. This replaced a catch that collapsed
    the slide about every 1.6 s.
 
 The result is eased in over 60 ms so corrections never snap, except with the handbrake
 held, when it applies instantly or a fast drift would spin first.
 
-`c.drift` (0 to 1) rises at 9/s while the handbrake is held above 9 m/s on a tier with
+`c.drift` (0 to 1) rises at 15/s while the handbrake is held above 9 m/s on a tier with
 `drift`. It then fades at 1/s, or 2.5/s once the slide ends or the throttle lifts. It widens the steering
-range, weakens the caster, cuts rear grip by up to 45% and cuts handbrake force by up
-to 85%, so the tail slides rather than locks.
+range, weakens the caster, cuts rear grip by up to 55% and cuts handbrake force by up
+to 85%, so the tail slides rather than locks. Key and arrow steering winds on up to 1.5
+times faster in a drift.
 
 ### Vehicle specs
 
@@ -1028,9 +1053,38 @@ stays.
 | Barriers | Coloured quads, plus an ink outline and a shadow copy |
 | Trees, palms, shrubs | Sprite batches. Up to 3000 attempts, kept where clumping noise and the distance from the road allow |
 | Containers, grandstand, grid boxes | Baked into rectangle meshes, because drawing them one at a time cost a slow phone more than the rest of the world together |
+| Sponsor boards | One rectangle mesh for the panels and one `Text` object for all the lettering. See below |
 
 Scenery uses an RNG seeded from the track's sample count, so a track looks the same
 each time.
+
+### Sponsor boards
+
+Hoardings like an F1 circuit's: flat panels on the grass just outside the fence,
+20 m long and 2.4 m deep, lettered so the bottom of the text faces the road. They're
+only drawn and have no physics. `boards.place` walks each fence from the start line,
+the left fence first, and lays a board along any chord a board long that the fence
+stays within 0.4 m of. That means straights and gentle bends, never hairpins. The
+board is pushed out by however far the fence bows towards it, so the gap stays the
+same. A board must sit wholly behind the nearest fence, clear of other boards and of
+the grandstand, and the next one comes 50 m on. That gives 19 to 56 boards a lap.
+A 10 m gap, about twice as many boards, felt like too much on ARDENNES.
+Trees and containers keep 6.5 m clear of every board.
+
+Boards are numbered 1..N in that order, and the number is the board's address:
+`sponsors.spots.mirage[3]` is MIRAGE's third board. A board that hasn't been sold
+takes `sponsors.pool[(n + offset) % #pool + 1]`, where the offset comes from the
+track's name. So each track starts somewhere else in the pool, and no sponsor is on
+two boards in a row. The player's own tracks show only the pool. **Changing
+`boards.LENGTH`, `DEPTH`, `GAP`, `SET`, `BOW` or the walk renumbers every board**,
+so once a spot is sold they stay as they are.
+
+A sponsor is up to 16 characters from A-Z, 0-9, space and `. - & ! '`, a `#rrggbb`
+board colour, and an optional `#rrggbb` ink colour. Without ink, the text is black
+or white, whichever reads better. `sponsors.check` validates an entry, and the tests
+run it over every entry. `SPPPD_SPOTS=1` labels each board with its address instead
+of its sponsor, and `love . --visual boards` with `SPPPD_TRACK` and `SPPPD_BOARD`
+parks beside one board.
 
 Freestyle's `loadApron` is a separate small scene: one huge quad and painted bays
 drawn around wherever the camera is, with the playground from `sim/lot.lua` in the
@@ -1206,8 +1260,21 @@ everything and clears older folders. A `complete` file is written last, so an
 interrupted first launch doesn't count. Any cache failure only costs time: the sound
 is rendered as normal.
 
+On a first launch the cores share the work. `audio.jobs()` lists every cached sound
+by name, engine loops first as they're slowest. `audio.prerender` puts the names on a
+channel and starts one `sound_worker.lua` thread per core but one, up to 6. Each takes
+names until the channel is empty and writes the WAVs into the cache folder, while the
+loading coroutine yields so the splash keeps drawing. `audio.load` then reads them
+like any cached sound, and renders anything a failed thread left out. `cache.get`
+trusts a WAV in a folder that isn't `complete`, because `cache.open` empties such a
+folder first, so only this launch's threads can have written it. Every render is
+seeded, so a thread makes the same sound the main thread would, apart from sfxr's
+noise, which was never seeded (the scrape).
+
 On the Galaxy A04 a full render took about 14.5 s and a cached launch 2.3 s
 (2026-11-01). That was before the crashes, squeal, grind and idle loops were added.
+On 2026-11-09, wall time from start to sounds ready: 18.1 s on one thread, 5.1 s on
+the A04's threads, 1.6 s from the cache.
 With the JIT off on the desktop the render is about 14% longer now, because moving the
 scrub and boost off sfxr paid for most of them.
 
@@ -1317,6 +1384,11 @@ out of the dash's row, which is too narrow on 16:9 phones. Without AUTO GAS, GAS
 the corner and BOOST moves beside BRAKE. An action held by two fingers is let go only
 when the last one lifts. `layout.buttons[1..5]` keep their order in both layouts
 (boost, drift, pause, reset, horn), because `tests/flow.lua` picks them by index.
+
+STEERING FEEL (`settings.touchFeel`, `touch.FEEL`) sets how sharply touch steers. On
+the stick it's the bend of `input.curve`: 1.0, 0.6 or 0.25 for LOW, MEDIUM and HIGH,
+where MEDIUM is the pad's. On the arrows it scales how fast the wheel winds on: 0.75,
+1 or 1.35, passed to `dynamics` as `input.steerRate`. Keys and pads keep their own.
 
 `touch.shown()` is true when the setting is `on`, or when it's `auto` and a touch has
 been seen. A key press or pad button in a race hands back.
@@ -1453,9 +1525,11 @@ whoever is in the lowest seat, and it's the one with a job to do: it publishes t
 hands out the track, answers clock pings and calls each start. If the host leaves a
 race, the next seat becomes the leader and everything carries on, because everyone
 already holds what's needed to race again. A lobby is different: the race is the host's
-to set, so the relay closes the room if the host leaves before the first start.
+to set, so the relay closes the room if the host leaves before the first start. A quick
+match's lobby isn't: its race is the relay's, so the next seat leads (see Quick match).
 
-Grid order is seat order with the gaps closed. Other drivers show as P1 to P4.
+Grid order is seat order with the gaps closed. Other drivers show by their driver
+name (see Drivers), or as P1 to P4 if they have none.
 
 ### Nothing waits for an answer
 
@@ -1471,16 +1545,19 @@ forwards with the sender's seat, as `2|sync|...`, so a client can't pose as anot
 
 | Packet | Direction | Purpose |
 | --- | --- | --- |
-| `event\|host\|5\|CODE\|cookie\|\|padding` | Client to relay | Create a room. Repeated until answered. Padded to 64 bytes |
-| `event\|join\|5\|CODE\|cookie\|\|padding` | Client to relay | Join a room. The same |
-| `event\|back\|5\|CODE\|cookie\|token\|padding` | Client to relay | Take my own seat back, from whatever address I have now |
+| `event\|host\|5\|CODE\|cookie\|\|features\|account\|proof\|padding` | Client to relay | Create a room. Repeated until answered. Padded to 64 bytes. `account` and `proof` sign the seat in as a driver, and are empty without one |
+| `event\|join\|5\|CODE\|cookie\|\|features\|account\|proof\|padding` | Client to relay | Join a room. The same |
+| `event\|back\|5\|CODE\|cookie\|token\|features\|account\|proof\|padding` | Client to relay | Take my own seat back, from whatever address I have now |
+| `event\|queue\|5\|\|cookie\|\|features\|account\|proof\|mode\|data\|padding` | Client to relay | Find me a race. `mode` is `quick`. `data` is empty, kept for ranked |
+| `event\|kick\|seat\|` | Client to relay | My vote to remove the driver in `seat` from a quick match |
 | `event\|lock\|` | Client to relay | The race has started, so take nobody new |
 | `event\|leave\|` | Client to relay | Leaving |
 | `event\|cookie\|cookie` | Relay to client | Ask again with this. The answer to a request without a good cookie |
-| `event\|room\|seat\|CODE\|seats\|locked\|token\|away` | Relay to client | Your seat, who's here, your token, and which seats are away. On any change, and every second |
+| `event\|room\|seat\|CODE\|seats\|locked\|token\|away\|names` | Relay to client | Your seat, who's here, your token, which seats are away, and `seat:NAME,…` for seats signed in as drivers (3.2 relays on). On any change, and every second |
+| `event\|match\|kind\|track\|laps\|time\|startIn\|online\|votes` | Relay to client | After each `room` in a quick match: the relay's race, whole seconds until it stops filling (`-1` while alone), drivers on the relay, and `seat:count,…` votes |
 | `event\|error\|reason` | Relay to client | Refused entry, or refused a seat back |
 | `event\|closed\|reason` | Relay to client | Removed: a closed room, a ban, a restart |
-| `hello\|car\|paint\|have\|ready\|vote\|features` | Everyone | Who I am, whether I hold the track, the round I'm ready for, the round I've asked for, and my `FEATURES` |
+| `hello\|car\|paint\|have\|ready\|vote\|features\|handling\|gearbox` | Everyone | Who I am, whether I hold the track, the round I'm ready for, the round I've asked for, my `FEATURES`, and the handling and gearbox I drive with (3.0 stops after `features`) |
 | `setup\|round\|hash\|chunks\|laps\|time\|startAt\|title\|needs` | Leader | The race, when it starts, and the `FEATURES` it needs |
 | `ping\|t`, `pong\|seat\|t\|leaderTime` | Clients and leader | Finding the leader's clock |
 | `need\|hash\|1,2,3`, `chunk\|hash\|n\|text` | Clients and leader | Fetching a track |
@@ -1513,6 +1590,14 @@ changing `PROTOCOL`, by these rules:
   only what that allows. A race that needs more sets `needs` in its setup: the host
   can't start it until every driver's `FEATURES` reaches it, and an older game that
   hears it fails with "The host's race needs a newer version of the game".
+
+A field made only of `.` is an older game's padding, and the relay reads it as empty.
+So a 3.0 game's `host` reads as `features` 0.
+
+| `FEATURES` | Adds |
+| --- | --- |
+| 0 | 3.0 |
+| 1 | Quick match, and each driver's own handling and gearbox online |
 
 **Change `PROTOCOL` only for a break those rules can't cover**, which is a new major
 version.
@@ -1692,6 +1777,40 @@ token, so the relay drops them after 5 s, as before.
 - 6 s of hearing nothing at all means a game before protocol 5 has lost the relay.
   Later ones try to get back in first.
 
+### Quick match
+
+QUICK MATCH on the ONLINE screen sends `queue` instead of `host` or `join`, with no
+code. `server/match.go` seats the driver in the oldest room still filling that has a
+free seat, the same protocol, nobody this address is kept apart from, and nobody gone
+quiet for over 2 s; otherwise it makes a room with an 8-character code (the game's are
+6, so they never clash) and picks its race: a built-in track, skipping the last two
+picked, laps for about three minutes from the AI's ARCADE lap times, and a random time
+of day. `join` with that code is refused: sharing it lets nobody in.
+
+The second driver starts a 15 s countdown (`-quick-fill`; the online tests use 2 s),
+which a full grid of four cuts to 3 s, and `match` carries it. The leader builds the
+setup from the match, on its own copy of the built-in track, so nobody downloads
+anything, and when the countdown runs out calls `startRace` itself once `canStart` holds.
+Every game ignores a setup whose hash isn't the match track's, so a leader can't swap
+it. The leader repeats `lock` until the room event shows it, because past its fill time
+a room leaves the filling list, and one still unlocked a minute later is closed with
+"The race didn't start". A game hearing that before its first race queues again by
+itself. Dropping back to one driver before the start stops the countdown, and the room
+fills again.
+
+REMATCH works as in any room. FIND ANOTHER on the results leaves and queues again with
+the same car and setup.
+
+**Voting out.** In a quick match of three or more, VOTE OUT in the pause menu lists the
+others, and `kick` is repeated for up to 3 s until the count in `match` goes up. Every
+game, the target's too, shows `P3 MAY BE VOTED OUT (1/2)`. Two votes remove the target
+with `event|closed|The other drivers voted you out`; in a room of two there's no vote,
+because one driver could remove the other. The target's IP then can't queue for
+2 minutes, doubled for each vote-out that UTC day up to an hour, and each voter's IP is
+kept apart from it in matching for 30 minutes, unless they share an IP, which would bar
+that address from every room with itself in it. Neither map outlasts a restart, and both
+are capped at 65536 entries, evicting at random.
+
 ### The relay
 
 `server/main.go` holds this state behind one mutex:
@@ -1704,6 +1823,8 @@ token, so the relay drops them after 5 s, as before.
 | `perIP` | Connections from each IP |
 | `buckets` | Rate limit state for each IP |
 | `events` | Last 200 lines for the dashboard |
+| `filling` | Quick match rooms still taking drivers, by kind, oldest first |
+| `cooldown`, `avoid` | IPs voted out, and pairs of IPs kept apart after a vote |
 | `total`, `perSecond`, `dropped` | Traffic counters |
 
 **`Handle(data, addr)`** runs for every packet:
@@ -1715,10 +1836,11 @@ token, so the relay drops them after 5 s, as before.
  refresh LastSeen, and if it was away, it's back: tell the room
  not an event?         stamp with the seat and forward to the rest of the room,
                        except anyone away
- unknown client?       register if it's host, join or back, otherwise ignore
+ unknown client?       register if it's host, join, back or queue, otherwise ignore
  event|leave           remove the client and tell the room
  event|lock            lock the room
- event|host/join/back  resend the room (the answer may have been lost)
+ event|kick            count a vote in a quick match
+ event|host/join/back/queue  resend the room (the answer may have been lost)
 ```
 
 **`register`** checks a request from an unknown address. From protocol 5:
@@ -1729,6 +1851,8 @@ token, so the relay drops them after 5 s, as before.
  older than -min-proto, bad code, too many from this IP?   refuse
  back                  give the seat whose token matches its new address, or refuse
  host or join          as before, with a new token for the seat
+ queue                 unknown mode, FEATURES under 1, cooling down?   refuse
+                       otherwise seat it in a quick match (see Quick match)
 ```
 
 The cookie is HMAC-SHA-256 of the address and port and the current 30 s window, cut
@@ -1746,7 +1870,9 @@ up, so a flood can't push everything else off the activity list.
 **`Sweep`** runs once a second: it computes traffic rates, marks clients in a shared
 room away after 5 s of silence and drops them 30 s later (games before protocol 5 go at
 5 s), drops anyone alone in a room after 60 s, repeats each room to the clients heard
-from in the last 2 s, sums up the refusals, and clears old rate buckets. A game sends at
+from in the last 2 s, takes quick matches past their fill time off the filling list and
+closes those a minute past it, sums up the refusals, and clears old rate buckets,
+cooldowns and pairs kept apart. A game sends at
 least four times a second, so only an address that has stopped sending, or never
 was, misses the repeat.
 
@@ -1777,7 +1903,63 @@ forged source gets the same rate limit, which caps that at under 20 kB/s. A forg
 `host` gets one answer, not one a second, because the sweep only repeats rooms to
 addresses still sending. So the relay isn't worth abusing as a reflector.
 
-Players have no accounts. Only the dashboard has users.
+### Drivers
+
+`server/drivers.go` and `src/account.lua`. A driver is a name, with no email and no
+password. Picking one on PROFILE makes two random 16-byte keys: a device key and a
+recovery key. Both go to the relay once, in the sign-up, and the game keeps them in
+`account.lua` in the save folder, one driver per server address. After that it
+proves it holds a key without sending it:
+
+```
+proof = base64url(HMAC-SHA-256(key, intent .. "|" .. cookie))[1..22]
+```
+
+The cookie is the relay's: bound to the address and a 30 s window, and only that
+address sees it, so a proof can't be replayed from elsewhere or later. `host`, `join`,
+`back` and `queue` carry `account` and `proof`, and a good proof puts the driver's
+name on the seat. A missing or wrong one only leaves the seat unnamed, and a banned
+driver is refused. The Go and Lua tests share one test vector, so the two HMACs can't
+drift apart. Random keys come from `/dev/urandom` where there is one (Linux,
+Android), and elsewhere from clocks, table addresses and timing jitter stirred
+through SHA-256.
+
+The recovery code is the driver's number and the recovery key in base32,
+`1042-K7Q2M-…`. COPY RECOVERY CODE puts it on the clipboard, and I HAVE A RECOVERY
+CODE starts filled in when the clipboard holds one that reads. Typed or pasted into
+PROFILE on another device, it signs that device in with a device key of its own; the proof covers the new key, so it can't add a different one.
+Ten devices at most: past that, the one used least recently is dropped.
+
+| Packet | Direction | Purpose |
+| --- | --- | --- |
+| `event\|signup\|5\|cookie\|NAME\|key\|recovery\|label\|padding` | Client to relay | Make a driver. `label` is `love.system.getOS()`. Asked again with the same name and keys, it answers again |
+| `event\|recover\|5\|cookie\|id\|key\|label\|proof\|padding` | Client to relay | Add this device. The proof is made with the recovery key over `recover\|cookie\|key` |
+| `event\|profile\|5\|cookie\|id\|proof\|padding` | Client to relay | My name, since when, and how many devices |
+| `event\|rename\|5\|cookie\|id\|proof\|NAME\|padding` | Client to relay | A new name, once every 30 days |
+| `event\|signout\|5\|cookie\|id\|proof\|padding` | Client to relay | Remove this device's key |
+| `event\|forget\|5\|cookie\|id\|proof\|padding` | Client to relay | Delete the driver |
+| `event\|driver\|id\|NAME` | Relay to client | You're driver `id` (sign-up, recover, rename) |
+| `event\|profile\|NAME\|since\|devices\|id` | Relay to client | The answer to `profile` |
+| `event\|signedout\|id`, `event\|nodriver\|id` | Relay to client | This device isn't signed in to `id`, or there's no such driver. The game forgets it |
+| `event\|denied\|intent\|reason` | Relay to client | Turned down: a taken or refused name, a rename too soon, too many tries |
+
+Requests go from their own socket, so a refusal can't end a race, and are repeated
+four times a second until answered, like everything else.
+
+Names are 3 to 12 of `A–Z 0–9 - _`, in capitals, unique. The relay refuses a short
+reserved list, `DRIVER` and a number (what the dashboard renames someone to), and the
+words in `blocked_names.txt` anywhere in the name once look-alikes are folded. The game
+checks only the shape.
+
+The relay holds every driver and key in memory (`accounts`, `names`), so checking a
+proof never touches the disk. Changes are made in memory under the lock and handed to
+one writer goroutine on a buffered channel (`driverWrites`, 256). When it's full, the
+request is dropped unanswered and the game asks again. Numbers start at 1001 and are
+never given twice, deleted or not (`AUTOINCREMENT`). Sign-ups are limited to 3 an hour
+from one address; recovery tries to 10 an hour from an address and 10 for a driver.
+
+The dashboard's Drivers section finds a driver by name or number, shows each device's
+label and days, and can reset a name to `DRIVER` and the number, ban or unban.
 
 ### The store
 
@@ -1792,9 +1974,11 @@ mode, with temporary data in memory, because the container's root is read-only.
 | `users` | Name, bcrypt hash, when added |
 | `sessions` | SHA-256 of each login token, its user, expiry (7 days) |
 | `meta` | Nothing now. Older relays kept the analytics key here; it's moved out on start and the row is wiped with `secure_delete` |
-| `daily` | One row of totals per UTC day, `backs` included since the relay that added getting back in. `migrate` adds the column to an older database |
+| `daily` | One row of totals per UTC day, `backs` included since the relay that added getting back in, `quick_races` since quick match, and `signups` since drivers. `migrate` adds the columns to an older database |
 | `visitors` | Day and keyed IP hash, deleted after `-analytics-days` |
-| `races` | Start, end, drivers and protocol of each room that raced |
+| `races` | Start, end, drivers, protocol and `kind` (`quick` or empty) of each room that raced |
+| `drivers` | Number, name, recovery key, made, last day seen, last rename, banned |
+| `driver_keys` | Each device's key, label ("Android") and the days it was added and last seen |
 
 The analytics key is in a file of its own next to the database, `relay.db.key`
 (mode 0600), so a backup of the database can't be used to undo the IP hashes.
@@ -1814,7 +1998,7 @@ aren't worth backing up, and the backup only copies `relay.db`.
 | Table | Holds |
 | --- | --- |
 | `events` | Seq, time and text of each activity line. Clean-up keeps the newest 200, none older than 7 days |
-| `rooms` | One row: the rooms from protocol 5 on, as JSON (code, protocol, times, locked, racers, and each seat's slot, address and token), and when they were saved |
+| `rooms` | One row: the rooms from protocol 5 on, as JSON (code, protocol, times, locked, racers, a quick match's kind, race and fill time, and each seat's slot, address, token and `FEATURES`), and when they were saved. Votes aren't kept |
 
 The relay never waits on it. `record` hands each line to a channel of 1024 without
 blocking, and counts a line it can't hand over in `tempLost` rather than wait. One
@@ -1843,7 +2027,7 @@ memory, and the relay's hot paths only bump integers:
 | Room, join | `register`, once seated |
 | Refusal | `refuse` |
 | Seat taken back | `rejoin` |
-| Race, racers | `lock`, the first time a room locks |
+| Race, racers | `lock`, the first time a room locks, and a quick race if the relay made it |
 | Finished race | `dropRoom`, when a locked room empties or closes |
 | Peak players | `seat` and `Sweep` |
 | Traffic | `Sweep`, from the per-second rates |
@@ -1862,7 +2046,8 @@ every 2 s and swaps in fresh tables. Recent activity polls `/activity` on its ow
 the page adds only lines with a higher `Seq`, so the list keeps its scroll position.
 Neither redraws while text is selected, because that would lose the selection, and the
 header says it's paused. Ctrl+A over the list selects just the list. Analytics, when
-on, poll `/analytics` every minute.
+on, poll `/analytics` every minute. A quick match carries a QUICK badge, and the time
+left to fill until it starts.
 
 | Route | Method | Action |
 | --- | --- | --- |
@@ -1968,7 +2153,8 @@ racing is told. Bans, users, logins and analytics survive it.
 
 `spppd.xyz/status/` tells players whether the official relay is up, with how many
 drivers are online and races running. `-status addr` serves those counts as JSON at
-`GET /api/status`; if it answers, the relay is up. On the official server it listens
+`GET /api/status`, with `looking`, the drivers in quick matches that haven't started;
+if it answers, the relay is up. On the official server it listens
 on `:8081` on the kamal network only, and the website's Caddy passes `/api/status` to
 `spppd-relay:8081`, so a stopped relay shows as down. In `make site-dev`, Vite passes
 it to `127.0.0.1:8081` (`SPPPD_STATUS` to change that).
@@ -2037,18 +2223,39 @@ positions, hence "new cars go on the end".
 | `make check-relay` | Checks the official relay answers, without showing in its stats |
 | `make site` | The website in `site/dist`, with this version's builds to download. See [The website](#the-website) |
 | `make deploy-site` | Builds the website, then deploys it |
-| `make zip` | `dist/spppd-3.0.0.love`. Tests stay out |
+| `make zip` | `dist/spppd-3.5.0.love`. Tests stay out |
 | `make win64 win32` | Windows zips. To this project, these are what a release means |
-| `make apk` | Test APK, self-signed, application id `xyz.hblabs.spppd` |
+| `make apk` | APK signed with a local key, application id `xyz.spppd` |
+| `make aab` | App Bundle for Google Play, signed with the upload key (`UPLOAD_KEYSTORE`) |
 | `make apk-perf` | APK that runs `--perf` at launch |
 | `./build.sh` | The `.love`, then `dist/web/`, the browser build (love.js 11.4.1 via npx, compatibility mode). `--no-web` stops after the `.love` |
 | `make all` | `clean` first, which wipes `dist/`, including `love-android`. Releases use `make zip win64 win32` |
 
 The first `make apk` compiles LÖVE 11.5 for Android (about 1 GB). After that only the
-`.love` inside the APK is swapped, then it's realigned and resigned.
+`.love` inside the APK is swapped, then it's realigned and resigned. Changing the
+version or `android/prepare.sh` compiles it again.
 
-The version lives in `config.lua`, and `Makefile` and `android/apk.sh` read it from
-there. There are no tags and no CI.
+`prepare.sh` brings love-android 11.5 up to what Google Play asks: target API 36, and
+64-bit libraries on 16 KB memory pages. That takes NDK r27, which goes no lower than
+Android 5.0 (API 21), and Android Gradle Plugin 8.10.1 on Gradle 8.11.1. It also patches
+what r27 and the newer R8 broke: `-Wno-register` for libmodplug, `ALooper_pollOnce` in
+SDL's sensor code, and keep rules for the `love` library, whose shrinking otherwise
+strips the constructor Android starts `GameActivity` with. `apk.sh` aligns with
+`zipalign -P 16`. Check a build with `zipalign -c -P 16 -v 4` and `readelf -lW` on its
+`lib/arm64-v8a/*.so` (LOAD alignment `0x4000`).
+
+From API 35 Android draws apps edge to edge, and LÖVE already lays a fullscreen game
+under a camera notch. `ui.safeArea` reads `love.window.getSafeArea()`, and the HUD,
+the touch controls and the menus are drawn inside it while the race and the menu's
+backdrop fill the screen. Touches are moved into the same space in `main.lua`. On the
+A04 the notch takes 24 units on one side. `SPPPD_SAFE=left,top,right,bottom` fakes one
+on a desktop.
+
+The version lives in `config.lua`, and `Makefile` and `android/prepare.sh` read it from
+there. `VERSION_CODE` beside it is the Android version code, major * 10000 +
+minor * 100 + patch; a test checks the two agree. F-Droid builds each new `v*` tag
+from source and offers it only if the code went up, and shows
+`fastlane/metadata/android/en-US/changelogs/<VERSION_CODE>.txt` as its notes. There is no CI.
 
 ### The browser build
 
@@ -2072,7 +2279,8 @@ with `BUILD=./build.sh`, as game-race does.
 
 | Command | Runs | Needs |
 | --- | --- | --- |
-| `make test` | Nine Lua suites, about 7.5 minutes | Nothing |
+| `make test` | The Lua suites on every core (`bin/test-parallel`), about 25 seconds on 8 cores | Nothing |
+| `make test-serial` | The same in one process, in order, about 2 minutes | Nothing |
 | `make test-visual` | `tests/flow.lua`: real handlers with graphics and sound | A display, and no pointer over the window |
 | `make listen` | `tests/sound/listen.lua`: old and new sounds side by side | A display and ears |
 | `make sound-report` | Measures every sound and the mix, old against new | `tests/sound/requirements.txt` |
@@ -2094,9 +2302,18 @@ with `BUILD=./build.sh`, as game-race does.
 
 Things to know about the harness:
 
-- `tests/run.lua` calls `jit.off()`, matching the Galaxy A04.
+- The JIT is on. It used to be off to match the Galaxy A04, but on x86-64 compiled
+  code does the same double arithmetic as the interpreter: every lap time and figure
+  the suite prints came out the same both ways, and the suite runs five times faster.
 - A debug hook fails any test that runs past its time limit (`SPPPD_TEST_LIMIT`, 120 s
-  by default), so a hang gives a traceback.
+  by default), so a hang gives a traceback. Compiled code never calls the hook, so a
+  watchdog thread also ends the run, without a traceback, when a test spins inside a
+  trace.
+- `SPPPD_TEST_SHARD=i/n` runs every n-th test from the i-th and saves into
+  `spppd-test-<i>` instead of `spppd-test`, so shards don't share settings or caches.
+  `bin/test-parallel` starts one shard per core (`SPPPD_TEST_SHARDS` to change it)
+  and adds up the results. A test that leans on state an earlier test left behind
+  breaks under sharding; `make test-serial` runs them in order.
 - `--test` has no audio or graphics, so `audio.ready` is false and a test guarded by
   it passes silently. It also never builds a track mesh. After drawing changes, a
   `--visual` scene is the real check.

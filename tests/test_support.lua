@@ -6,6 +6,15 @@ local Track = require("src/sim/track")
 local audio = require("src/audio")
 local radio = require("src/radio")
 
+h.describe("version", function()
+  h.it("the Android version code follows the version", function()
+    local config = require("src/config")
+    local major, minor, patch = config.VERSION:match("^(%d+)%.(%d+)%.(%d+)$")
+    h.assertTrue(major ~= nil, "VERSION is not major.minor.patch: " .. config.VERSION)
+    h.assertEq(config.VERSION_CODE, major * 10000 + minor * 100 + patch, "VERSION_CODE")
+  end)
+end)
+
 h.describe("environment", function()
   h.it("every theme gives the shaders what they need", function()
     local environment = require("src/render/environment")
@@ -1228,6 +1237,42 @@ h.describe("sound cache", function()
     cache.open({ "src/no_such_file.lua" })
     h.assertTrue(not cache.folder)
     h.assertEq(cache.get("tone", tone):getSampleCount(), 500)
+  end)
+
+  h.it("lists every sound once", function()
+    local audio = require("src/audio")
+    local seen = {}
+    for _, job in ipairs(audio.jobs()) do
+      h.assertTrue(not seen[job.name], "twice: " .. job.name)
+      h.assertTrue(type(job.render) == "function", job.name .. " has no render")
+      seen[job.name] = true
+    end
+    for _, name in ipairs({ "engine4_1", "engine4_limiter", "turbo1", "wind", "motor", "startup", "scrape" }) do
+      h.assertTrue(seen[name], "missing " .. name)
+    end
+  end)
+
+  h.it("threads share a first launch and render what one would", function()
+    local audio = require("src/audio")
+    empty()
+    cache.open({ "src/audio.lua", "src/lib/sfxr.lua" })
+    h.assertEq(audio.prerender(3), 3)
+    local folder = cache.folder
+    for _, job in ipairs(audio.jobs()) do
+      h.assertTrue(love.filesystem.getInfo(folder .. "/" .. job.name .. ".wav"), "not rendered: " .. job.name)
+    end
+    -- What a thread wrote is what this thread would have made.
+    for _, name in ipairs({ "horn", "engine4_2", "turbo2" }) do
+      local job
+      for _, j in ipairs(audio.jobs()) do if j.name == name then job = j end end
+      local here = job.render(unpack(job.args))
+      local there = love.sound.newSoundData(folder .. "/" .. name .. ".wav")
+      h.assertEq(there:getSampleCount(), here:getSampleCount(), name)
+      for i = 0, here:getSampleCount() - 1, 97 do
+        h.assertEq(there:getSample(i), here:getSample(i), name .. " sample " .. i)
+      end
+    end
+    empty()
   end)
 end)
 

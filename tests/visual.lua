@@ -84,6 +84,26 @@ local function splitSetup()
   ui.focus.setup = 3
 end
 
+-- PROFILE without a driver, or with one, its recovery code showing and just copied
+-- (the fullest it gets). Nothing is sent: the driver is written straight to a file
+-- of the scene's own.
+local function profile(signedIn)
+  local account = require("src/account")
+  account.FILE = "visual-account.lua"
+  love.filesystem.remove(account.FILE)
+  if signedIn then
+    love.filesystem.write(account.FILE, "return " .. settings.serialize({ [settings.server] = {
+      id = 1042, name = "SPEED_DEMON1", key = account.base64url(account.randomBytes(16)),
+      recovery = account.base64url(account.randomBytes(16)) } }))
+  end
+  account.load()
+  account.profile = signedIn and { since = "2026-11-07", devices = 2 } or nil
+  menu.enter()
+  menu.showCode = signedIn
+  if signedIn then account.message = "Copied. Keep it somewhere safe." end
+  menu.go("profile")
+end
+
 local SCENES = {
   split = split,
   splitsetup = splitSetup,
@@ -140,6 +160,20 @@ local SCENES = {
     local r = rm.race()
     r.startDelay = 100
     r.player.driver = { revs = function() return 0.68 end }
+  end,
+  -- Parked on the road beside a sponsor board: SPPPD_BOARD (its number, 1 by
+  -- default), SPPPD_TRACK and SPPPD_TIME. SPPPD_SPOTS=1 shows the boards' numbers.
+  boards = function()
+    race({ track = os.getenv("SPPPD_TRACK") or "mirage", time = os.getenv("SPPPD_TIME") or "day", opponents = 0 })
+    local r = rm.race()
+    r.startDelay = 100
+    local list = require("src/render/track_renderer").boardSpots(r.track)
+    local b = list[math.min(#list, tonumber(os.getenv("SPPPD_BOARD")) or 1)]
+    local i = r.track:locate(b.x, b.y)
+    local s = r.track.samples[i]
+    r.player:teleport(s.x, s.y, math.atan2(s.ty, s.tx))
+    rm.syncCamera(1)
+    r.player.driver = { update = function(_, c) c.input.throttle, c.input.handbrake = 0, true end }
   end,
   trial = function() race({ track = "highlands", time = "day", mode = "trial", opponents = 0 }) autopilot() end,
   free = function()
@@ -226,6 +260,10 @@ local SCENES = {
   phonepad = function() phone() menu.enter() menu.go("pad") end,
   phoneonline = function() phone() menu.enter() settings.mode = "race" menu.go("online") end,
   phonehost = function() phone() menu.enter() settings.mode = "race" menu.go("host") end,
+  profile = function() profile(false) end,
+  profiledriver = function() profile(true) end,
+  phoneprofile = function() phone() profile(false) end,
+  phoneprofiledriver = function() phone() profile(true) end,
   pause = function() race({ track = "mirage", time = "day" }) autopilot() end,
   -- Freestyle's pause menu, with its CAR and PAINT rows: on the lot, on a phone,
   -- and two at a screen (SPPPD_MODE=freestyle).
