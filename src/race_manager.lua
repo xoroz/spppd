@@ -22,6 +22,7 @@ local audio = require("src/audio")
 local radio = require("src/radio")
 local colors = require("src/colors")
 local network = require("src/network_manager")
+local account = require("src/account")
 local rumble = require("src/rumble")
 local cheats = require("src/cheats")
 local garage = require("src/entities/garage")
@@ -172,13 +173,15 @@ function rm.commitRecords()
   for i, view in ipairs(session.views or {}) do
     if view.bestLapTime and view.bestLapFrames and #view.bestLapFrames >= 6 then
       local hue = (i == 2) and settings.hue2 or settings.hue
+      local driver = i == 1 and account.driver() or nil
+      local driverName = (driver and driver.name) or view.car.name
       local saved = settings.submitLap(
         entry.name,
         view.car.spec.id,
         view.bestLapTime,
         view.bestLapFrames,
         rules,
-        { hue = hue, name = view.car.name }
+        { hue = hue, name = driverName }
       )
       if saved then anySaved = true end
       view.committedBestLap = view.bestLapTime

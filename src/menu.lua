@@ -22,8 +22,9 @@ local carStats = require("src/sim/car_stats")
 local cheats = require("src/cheats")
 local input = require("src/input")
 local web = require("src/web")
+local flags = require("src/flags")
 
-local menu = { screen = "main" }
+local menu = { screen = "main", recordsFilter = "all" }
 
 local PAINTS = {
   { name = "FACTORY" },
@@ -275,6 +276,7 @@ local function mainRows()
         radio.scan()
         menu.go("setup")
       end },
+    { label = "RECORDS", activate = function() menu.openRecords() end },
   }
   -- The browser has no sockets.
   if not web.on then
@@ -1036,11 +1038,89 @@ function menu.openEditor()
   state.screen = "editor"
 end
 
+local RECORD_FILTERS = { "all", "real", "saved" }
+local RECORD_FILTER_NAMES = { all = "ALL TRACKS", real = "REAL CIRCUITS", saved = "SAVED" }
+
+local function filteredRecordTracks()
+  local out = {}
+  for _, entry in ipairs(catalog.all()) do
+    if menu.recordsFilter == "all"
+      or (menu.recordsFilter == "real" and entry.country)
+      or (menu.recordsFilter == "saved" and entry.saved) then
+      out[#out + 1] = entry
+    end
+  end
+  return out
+end
+
+function menu.openRecords()
+  menu.recordTrack = nil
+  settings.requestSync()
+  menu.go("records")
+end
+
+local function recordsSyncText()
+  if settings.syncState == "syncing" then return "CHECKING CENTRAL SERVER..." end
+  if settings.syncState == "central" then return "SOURCE: CENTRAL SERVER" end
+  return "CENTRAL OFFLINE - LOCAL RECORDS"
+end
+
+local function recordsRows()
+  if menu.recordTrack then
+    local trackEntry = menu.recordTrack
+    return {
+      { label = "RACE THIS TRACK", activate = function()
+          settings.track = trackEntry.name
+          settings.mode = "trial"
+          save()
+          menu.recordTrack = nil
+          menu.go("setup")
+        end },
+      { label = "REFRESH", activate = function() settings.requestSync() end },
+      { label = "BACK TO TRACKS", activate = function() menu.recordTrack = nil end },
+    }
+  end
+
+  local rows = {
+    { label = "REFRESH", activate = function() settings.requestSync() end },
+    stepper("FILTER",
+      function() return menu.recordsFilter end,
+      function(v)
+        menu.recordsFilter = v
+        ui.scroll.records = 0
+      end,
+      RECORD_FILTERS, RECORD_FILTER_NAMES),
+  }
+  for _, entry in ipairs(filteredRecordTracks()) do
+    local e = entry
+    rows[#rows + 1] = {
+      label = e.title,
+      flag = e.country,
+      track = e,
+      value = function()
+        local recs = settings.trackRecords(e.name)
+        return recs[1] and hud.formatTime(recs[1].time) or "--:--.---"
+      end,
+      activateOnClick = true,
+      activate = function()
+        if not menu.hasSidePanel then
+          menu.recordTrack = e
+          ui.focus.records = 1
+        end
+      end,
+    }
+  end
+  rows[#rows + 1] = { label = "BACK", activate = function() menu.go("main") end }
+  return rows
+end
+menu.recordsRows = recordsRows
+
 -- Drawing --------------------------------------------------------------------
 
 local SCREENS = {
   main = { rows = mainRows },
   setup = { rows = setupRows },
+  records = { rows = recordsRows },
   settings = { rows = settingsRows },
   controls = { rows = controlsRows },
   keys = { rows = keyRows },
@@ -1139,12 +1219,28 @@ local function drawSetupPreview(sw, sh, boardW, s, carOnly)
   end
   if entry then
     local data = cachedTrack(entry)
+    local country = entry.country or data.track.country
     -- Stops short of the car panel on a screen as low as a phone's.
     local size = math.min(w, sh * 0.5, sh - 166 * s)
     ui.panel(x, 14 * s, w, size + 34 * s, 0.82)
+    if country then
+      local pal = flags.palette(country)
+      local segW = w / #pal
+      for i, c in ipairs(pal) do
+        love.graphics.setColor(c)
+        love.graphics.rectangle("fill", x + (i - 1) * segW, 14 * s, segW, 2 * s)
+      end
+    end
     minimap.drawOutline(data.track, data.line, x + (w - size) / 2 + 10 * s, 20 * s, size - 20 * s, 3, colors.paint)
-    ui.text(entry.title, x + 6 * s, 14 * s + size + 8 * s, 8 * s, colors.marshal)
-    local detail = string.format("%.2f KM", data.track.length / config.METER / 1000)
+    local titleX = x + 6 * s
+    if country then
+      flags.draw(country, titleX, 14 * s + size + 8 * s, 13 * s, 8 * s)
+      titleX = titleX + 17 * s
+    end
+    ui.text(entry.title, titleX, 14 * s + size + 8 * s, 8 * s, colors.marshal)
+    local cname = country and flags.countryName(country)
+    local kmText = string.format("%.2f KM", data.track.length / config.METER / 1000)
+    local detail = cname and (cname .. "  " .. kmText) or kmText
     ui.text(detail, x, 14 * s + size + 8 * s, 6 * s, colors.paint, "right", w - 6 * s)
     -- Freestyle times nothing, so a best lap means nothing there.
     if settings.mode ~= "freestyle" then
@@ -1179,6 +1275,86 @@ local function drawSetupPreview(sw, sh, boardW, s, carOnly)
     tx, py + 21 * s, 6 * s, colors.marshal)
   ui.text(spec.blurb, tx, py + 33 * s, 6 * s, colors.muted, "left", w - 90 * s)
   if withStats then drawCarStats(spec, x + 6 * s, py + 70 * s, w - 12 * s, s) end
+end
+
+-- Track leaderboard card used on the right panel (wide) or inside the board (narrow).
+local function drawTrackLeaderboard(entry, x, y, w, h, s, showMap)
+  if not entry then return end
+  ui.panel(x, y, w, h, 0.84)
+  local country = entry.country
+  if country then
+    local pal = flags.palette(country)
+    local segW = w / #pal
+    for i, c in ipairs(pal) do
+      love.graphics.setColor(c)
+      love.graphics.rectangle("fill", x + (i - 1) * segW, y, segW, 2 * s)
+    end
+  end
+
+  local hx = x + 8 * s
+  local hy = y + 8 * s
+  if country then
+    flags.draw(country, hx, hy + 1 * s, 18 * s, 11 * s)
+    hx = hx + 23 * s
+  end
+  ui.text(entry.title, hx, hy, 8 * s, colors.marshal)
+
+  local sub = country and flags.countryName(country) or (entry.saved and "CUSTOM TRACK" or "CIRCUIT")
+  local recs = settings.trackRecords(entry.name)
+  local mapBottom = 34 * s
+  if showMap then
+    local data = cachedTrack(entry)
+    sub = sub .. string.format("  %.2f KM", data.track.length / config.METER / 1000)
+    local mapSize = math.min(w * 0.28, h * 0.24, 68 * s)
+    if mapSize >= 32 * s then
+      minimap.drawOutline(data.track, data.line, x + w - mapSize - 10 * s, y + 22 * s, mapSize, 2.5, colors.paint)
+      mapBottom = 22 * s + mapSize + 4 * s
+    end
+  end
+  ui.text(sub, hx, hy + 12 * s, 5.5 * s, colors.muted)
+
+  local badge = settings.syncState == "central" and "CENTRAL"
+    or (settings.syncState == "syncing" and "SYNCING..." or "LOCAL ONLY")
+  local badgeColor = settings.syncState == "central" and colors.sectorGreen
+    or (settings.syncState == "syncing" and colors.marshal or colors.muted)
+  ui.text(badge, x, hy + 1 * s, 5.5 * s, badgeColor, "right", w - 8 * s)
+
+  local listY = y + math.max(38 * s, mapBottom + 6 * s)
+  ui.kerb(x + 8 * s, listY - 6 * s, w - 16 * s, 3 * s, s)
+  ui.text("TOP 5 LAP RECORDS", x + 8 * s, listY, 6 * s, colors.paint)
+  listY = listY + 14 * s
+
+  if #recs == 0 then
+    ui.text("NO LAP RECORDS YET", x + 8 * s, listY + 6 * s, 6.5 * s, colors.muted)
+    ui.text("SET A LAP IN RACE OR TIME TRIAL.", x + 8 * s, listY + 20 * s, 5.5 * s, colors.muted, "left", w - 16 * s)
+    return
+  end
+
+  local rowH = math.min(24 * s, math.max(15 * s, (y + h - listY - 8 * s) / 5))
+  for i = 1, 5 do
+    local ry = listY + (i - 1) * rowH
+    local rec = recs[i]
+    local rankColor = i == 1 and colors.sectorPurple or (rec and colors.marshal or colors.muted)
+    ui.text("#" .. i, x + 8 * s, ry + 2 * s, 6.5 * s, rankColor)
+    if rec then
+      local spec = rec.car and garage.byId(rec.car)
+      local paint = PAINTS[rec.hue or 1]
+      local swatch = paint and paint.color or (spec and spec.color) or colors.marshal
+      love.graphics.setColor(swatch)
+      love.graphics.rectangle("fill", x + 28 * s, ry + 1 * s, 3 * s, rowH - 5 * s)
+
+      local driver = tostring(rec.name or "YOU"):sub(1, 10)
+      local carLabel = spec and spec.name or tostring(rec.car or "CAR")
+      ui.text(driver, x + 36 * s, ry + 1 * s, 6 * s, colors.paint)
+      if rowH >= 19 * s then
+        local ruleTag = rec.rules == "open" and "OPEN" or "CLEAN"
+        ui.text(carLabel .. "  " .. ruleTag, x + 36 * s, ry + 10 * s, 5 * s, colors.muted)
+      end
+      ui.text(hud.formatTime(rec.time), x, ry + 1 * s, 7 * s, i == 1 and colors.sectorPurple or colors.paint, "right", w - 8 * s)
+    else
+      ui.text("--:--.---", x, ry + 2 * s, 6 * s, colors.muted, "right", w - 8 * s)
+    end
+  end
 end
 
 -- Who's in the room and what they're racing for, down the side of the lobby.
@@ -1292,7 +1468,7 @@ function drawScreen(sw, sh)
 
   local titles = {
     setup = MODES[settings.mode], settings = "SETTINGS", online = "ONLINE", host = "HOST A ROOM", profile = "PROFILE",
-    controls = "CONTROLS", buttons = "BUTTON LIST", credits = "CREDITS", keys = "KEYBOARD", pad = "PAD",
+    records = "RECORDS", controls = "CONTROLS", buttons = "BUTTON LIST", credits = "CREDITS", keys = "KEYBOARD", pad = "PAD",
   }
   local title, titleColor = titles[menu.screen], nil
   if menu.screen == "keys" or menu.screen == "pad" then
@@ -1314,6 +1490,8 @@ function drawScreen(sw, sh)
   if ui.consumeBack() then
     if menu.screen == "main" then
       -- nothing to go back to
+    elseif menu.screen == "records" and menu.recordTrack then
+      menu.recordTrack = nil
     else
       if menu.screen == "online" then network.disconnect() end
       if menu.screen == "profile" then account.cancel() end
@@ -1326,9 +1504,34 @@ function drawScreen(sw, sh)
   if def then
     local rows = def.rows()
     local y, rowH = menu.listLayout(menu.screen, #rows, sh, s)
-    local focused = ui.list(menu.screen, rows, x, y, listW, rowH, size, s)
+    local listSize = size
+    local listOpts = nil
+    menu.hasSidePanel = (sw - w - 28 * s) >= 120 * s
+    if menu.screen == "records" then
+      local stColor = settings.syncState == "central" and colors.sectorGreen
+        or (settings.syncState == "syncing" and colors.marshal or colors.muted)
+      ui.text(recordsSyncText(), 14 * s, 67 * s, 5 * s, stColor, "left", w - 28 * s)
+      if menu.recordTrack then
+        local bodyH = math.max(96 * s, sh - 166 * s)
+        drawTrackLeaderboard(menu.recordTrack, 8 * s, 79 * s, w - 16 * s, bodyH, s, false)
+        rowH = 16 * s
+        y = 79 * s + bodyH + 6 * s
+        listSize = 6.5 * s
+      else
+        y = 80 * s
+        rowH = (ui.mobile and 20 or 14) * s
+        listSize = 6 * s
+        local availH = math.max(rowH * 3, sh - 118 * s)
+        listOpts = { maxRows = math.max(3, math.floor(availH / rowH)) }
+      end
+    end
+    local focused = ui.list(menu.screen, rows, x, y, listW, rowH, listSize, s, listOpts)
     if menu.screen == "setup" or menu.screen == "host" then
       drawSetupPreview(sw, sh, w, s)
+    elseif menu.screen == "records" and menu.hasSidePanel and not menu.recordTrack then
+      local target = (focused and focused.track) or filteredRecordTracks()[1]
+      local px = w + 14 * s
+      drawTrackLeaderboard(target, px, 14 * s, sw - px - 14 * s, sh - 28 * s, s, true)
     elseif menu.screen == "online" and network.slot then
       drawLobby(sw, sh, w, s)
     elseif menu.screen == "online" then
@@ -1336,6 +1539,10 @@ function drawScreen(sw, sh)
     end
     if menu.screen == "main" and focused.label == "QUICK RACE" and not ui.mobile then
       ui.text(quickHint(), 14 * s, sh - 34 * s, 5 * s, colors.muted, "left", w - 28 * s)
+    end
+    if menu.screen == "records" and not menu.recordTrack then
+      local hint = menu.hasSidePanel and "SELECT TRACK FOR TOP 5   ESC: BACK" or "TAP A TRACK FOR TOP 5"
+      ui.text(hint, 14 * s, sh - 34 * s, 5 * s, colors.muted, "left", w - 28 * s)
     end
     if menu.screen == "setup" then
       if focused.label == "HANDLING" then
@@ -1372,6 +1579,7 @@ function menu.update(dt)
   account.update(dt)
   rm.update(dt)
   if menu.screen == "online" then menu.updateOnline(dt) end
+  if menu.screen == "records" then settings.pollSync() end
 end
 
 -- Runs in the menus and in a race, because a rematch starts from the results.

@@ -8,8 +8,43 @@
 -- A driver belongs to one server, so the file keeps one for each server address.
 -- Requests use a socket of their own and wait on nothing: each is repeated four
 -- times a second until the server answers, as the room requests are.
-local socket = require("socket")
-local bit = require("bit")
+local hasSocket, socket = pcall(require, "socket")
+if not hasSocket then socket = nil end
+local hasBit, bitlib = pcall(require, "bit")
+-- The browser build's Lua 5.1 lacks LuaJIT's `bit` library; keep pure-Lua fallbacks.
+local bit = (hasBit and bitlib) or bit32 or (function()
+  local m = {}
+  function m.lshift(a, n) return math.floor(a * (2 ^ n)) end
+  function m.rshift(a, n) return math.floor(a / (2 ^ n)) end
+  function m.band(a, b)
+    local r, p = 0, 1
+    while a > 0 and b > 0 do
+      local ra, rb = a % 2, b % 2
+      if ra == 1 and rb == 1 then r = r + p end
+      a, b, p = (a - ra) / 2, (b - rb) / 2, p * 2
+    end
+    return r
+  end
+  function m.bor(a, b)
+    local r, p = 0, 1
+    while a > 0 or b > 0 do
+      local ra, rb = a % 2, b % 2
+      if ra == 1 or rb == 1 then r = r + p end
+      a, b, p = (a - ra) / 2, (b - rb) / 2, p * 2
+    end
+    return r
+  end
+  function m.bxor(a, b)
+    local r, p = 0, 1
+    while a > 0 or b > 0 do
+      local ra, rb = a % 2, b % 2
+      if ra ~= rb then r = r + p end
+      a, b, p = (a - ra) / 2, (b - rb) / 2, p * 2
+    end
+    return r
+  end
+  return m
+end)()
 local settings = require("src/settings")
 
 local account = {
@@ -234,6 +269,10 @@ end
 -- Starts a request. `fields(cookie)` gives what follows the cookie.
 local function request(intent, fields, onDriver)
   if account.busy then return end
+  if not socket then
+    account.message = "Online accounts are unavailable in this build."
+    return
+  end
   local udp = socket.udp()
   udp:settimeout(0)
   local host, port = settings.serverAddress()

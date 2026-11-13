@@ -5,6 +5,7 @@ local textures = require("src/render/textures")
 local environment = require("src/render/environment")
 local lot = require("src/sim/lot")
 local boards = require("src/render/boards")
+local flags = require("src/flags")
 
 local renderer = {}
 
@@ -30,6 +31,10 @@ local ROAD_SHADER = [[
   varying vec2 v_kerb;
   uniform highp vec3 roadColor;
   uniform highp float trackLength;
+  uniform highp vec3 kerbA;
+  uniform highp vec3 kerbB;
+  uniform highp vec3 kerbC;
+  uniform highp float kerbCount;
 
   #ifdef VERTEX
   attribute vec2 Edge;
@@ -52,8 +57,13 @@ local ROAD_SHADER = [[
     if (d < 0.0) {
       float kerb = dL < dR ? v_kerb.x : v_kerb.y;
       if (kerb > 0.5) {
+        if (kerbCount >= 2.5) {
+          float idx = floor(mod(v_s, 6.0 * M) / (2.0 * M));
+          vec3 kc = idx < 0.5 ? kerbA : (idx < 1.5 ? kerbB : kerbC);
+          return vec4(kc, 1.0);
+        }
         float block = mod(v_s, 4.0 * M) < 2.0 * M ? 1.0 : 0.0;
-        return vec4(mix(vec3(0.95, 0.12, 0.16), PAINT, block), 1.0);
+        return vec4(mix(kerbA, kerbB, block), 1.0);
       }
       // A thin dark outline stops the road melting into the ground.
       return -d < 7.0 ? vec4(0.15, 0.15, 0.22, 1.0) : vec4(0.0);
@@ -234,7 +244,13 @@ local function barrierMesh(points, theme, halfWidth, shift, open)
     if len > 0.01 then
       dx, dy = dx / len, dy / len
       local nx, ny = -dy * halfWidth, dx * halfWidth
-      local band = math.floor(segment / 3) % 2 == 0 and theme.barrierA or theme.barrierB
+      local band
+      if theme.barrierC then
+        local idx = math.floor(segment / 3) % 3
+        band = idx == 0 and theme.barrierA or (idx == 1 and theme.barrierB or theme.barrierC)
+      else
+        band = math.floor(segment / 3) % 2 == 0 and theme.barrierA or theme.barrierB
+      end
       segment = segment + 1
       local base = #verts
       local ox, oy = shift and shift[1] or 0, shift and shift[2] or 0
@@ -397,8 +413,12 @@ local function buildBoxes(boxes, env)
   return rectMesh(rects)
 end
 
-local function buildStand(st, env)
+local function buildStand(st, env, country)
   local CROWD = { { 0.98, 0.25, 0.25 }, { 0.2, 0.55, 0.98 }, { 0.99, 0.85, 0.2 }, { 0.98, 0.98, 0.98 }, { 0.98, 0.45, 0.75 } }
+  local pal = flags.palette(country)
+  if pal then
+    CROWD = { pal[1], pal[2], pal[3], pal[1], pal[2], pal[3], { 0.98, 0.98, 0.98 }, { 0.22, 0.24, 0.30 } }
+  end
   local rects = {}
   local frame = { st.x, st.y, st.angle }
   local w, h = STAND_W, STAND_H
@@ -460,8 +480,21 @@ function renderer.load(track, timeName, trackName)
 
   self.road = buildRoad(track)
   self.gravel = buildGravel(track, self.theme)
-  self.barrierL = barrierMesh(track.barrierL, self.theme, config.BARRIER_THICKNESS * M / 2)
-  self.barrierR = barrierMesh(track.barrierR, self.theme, config.BARRIER_THICKNESS * M / 2)
+  local pal = flags.palette(track.country)
+  local barrierTheme = pal and { barrierA = pal[1], barrierB = pal[2], barrierC = pal[3] } or self.theme
+  if pal then
+    local twoTone = (pal[1][1] == pal[3][1] and pal[1][2] == pal[3][2] and pal[1][3] == pal[3][3])
+    if twoTone then
+      barrierTheme = { barrierA = pal[1], barrierB = pal[2] }
+      self.kerbs = { a = pal[1], b = pal[2], c = pal[1], count = 2 }
+    else
+      self.kerbs = { a = pal[1], b = pal[2], c = pal[3], count = 3 }
+    end
+  else
+    self.kerbs = { a = { 0.95, 0.12, 0.16 }, b = { 0.98, 0.98, 0.95 }, c = { 0.95, 0.12, 0.16 }, count = 2 }
+  end
+  self.barrierL = barrierMesh(track.barrierL, barrierTheme, config.BARRIER_THICKNESS * M / 2)
+  self.barrierR = barrierMesh(track.barrierR, barrierTheme, config.BARRIER_THICKNESS * M / 2)
   local ink = { barrierA = INK, barrierB = INK }
   self.barrierEdgeL = barrierMesh(track.barrierL, ink, config.BARRIER_THICKNESS * M / 2 + 2.5)
   self.barrierEdgeR = barrierMesh(track.barrierR, ink, config.BARRIER_THICKNESS * M / 2 + 2.5)
@@ -488,7 +521,7 @@ function renderer.load(track, timeName, trackName)
   self.batches, self.boxes = buildScenery(track, self.theme, rng, boardList)
   self.gridBoxes = buildGridBoxes(track)
   self.boxMesh = buildBoxes(self.boxes, self.env)
-  self.standMesh = buildStand(grandstandSpot(track), self.env)
+  self.standMesh = buildStand(grandstandSpot(track), self.env, track.country)
 
   -- Floodlights around the lap for night racing.
   self.floods = {}
@@ -695,6 +728,10 @@ function renderer:drawGround()
   local road = self.roadShader
   road:send("roadColor", self.theme.road)
   road:send("trackLength", self.track.length)
+  road:send("kerbA", self.kerbs.a)
+  road:send("kerbB", self.kerbs.b)
+  road:send("kerbC", self.kerbs.c)
+  road:send("kerbCount", self.kerbs.count)
   love.graphics.setShader(road)
   love.graphics.setColor(1, 1, 1)
   love.graphics.draw(self.road)
@@ -748,6 +785,11 @@ function renderer:drawOverhead(lightsOn, lightsOut)
     local on = lightsOn and lightsOn >= i and not lightsOut
     if on then love.graphics.setColor(1, 0.1, 0.08) else love.graphics.setColor(0.24, 0.05, 0.05) end
     love.graphics.circle("fill", 0, y, M * 0.3)
+  end
+  if self.track and self.track.country then
+    local fw, fh = M * 0.9, M * 1.5
+    flags.draw(self.track.country, -fw / 2, -span + M * 0.35, fw, fh)
+    flags.draw(self.track.country, -fw / 2, span - M * 0.35 - fh, fw, fh)
   end
   love.graphics.pop()
 end

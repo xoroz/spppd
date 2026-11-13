@@ -53,6 +53,20 @@
     }
   }
 
+  function writeSyncStatus(dir, status) {
+    if (!dir || typeof Module === "undefined" || !Module.FS_createDataFile) return;
+    try {
+      ensureDir(dir);
+      var target = dir.replace(/\/+$/, "") + "/central-sync-status.txt";
+      try {
+        if (Module.FS && Module.FS.unlink) {
+          Module.FS.unlink(target);
+        }
+      } catch (_err) {}
+      Module.FS_createDataFile(dir, "central-sync-status.txt", String(status || "local"), true, true, true);
+    } catch (_err) {}
+  }
+
   function writeSyncFile(dir, tracks) {
     if (!dir || typeof Module === "undefined" || !Module.FS_createDataFile) return;
     try {
@@ -84,12 +98,15 @@
         return res.json();
       })
       .then(function (data) {
+        var targetDir = dir || lastSaveDir;
         if (data && data.tracks) {
-          writeSyncFile(dir || lastSaveDir, data.tracks);
+          writeSyncFile(targetDir, data.tracks);
         }
+        writeSyncStatus(targetDir, "central");
       })
       .catch(function () {
-        // Offline or central server unreachable: silently keep using local records.lua
+        // Offline or central server unreachable: signal local fallback cleanly
+        writeSyncStatus(dir || lastSaveDir, "local");
       });
   }
 

@@ -7,6 +7,7 @@ local menu = require("src/menu")
 local function fresh()
   input.setBindings()
   input.clear()
+  input.gamepad = nil
   menu.cancelCapture()
 end
 

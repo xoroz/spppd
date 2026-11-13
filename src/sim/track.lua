@@ -577,6 +577,7 @@ function Track.new(def)
   self.scale = scale
   self.theme = def.theme or "meadow"
   self.title = def.title
+  self.country = def.country
 
   local a, b
   if def.nodes then

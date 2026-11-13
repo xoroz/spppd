@@ -4,7 +4,10 @@ local wire = require("src/tracks/wire")
 
 local catalog = {}
 
-local BUILTIN = { "mirage", "highlands", "harbour", "boat", "speedway", "temple", "riviera", "ardennes", "touge", "oasis", "mugello", "barcelona" }
+local BUILTIN = {
+  "mirage", "highlands", "harbour", "boat", "speedway", "temple", "riviera", "ardennes", "touge", "oasis",
+  "mugello", "imola", "barcelona", "spielberg", "monza", "brands_hatch", "interlagos", "austin", "monaco",
+}
 local USER_DIR = "tracks"
 
 -- The menus ask for the list every frame, and reading it runs every saved file.
@@ -26,7 +29,13 @@ function catalog.builtin()
   local out = {}
   for _, name in ipairs(BUILTIN) do
     if manifest[name] then
-      out[#out + 1] = { name = name, title = manifest[name].title or name:upper(), def = manifest[name], builtin = true }
+      out[#out + 1] = {
+        name = name,
+        title = manifest[name].title or name:upper(),
+        country = manifest[name].country,
+        def = manifest[name],
+        builtin = true,
+      }
     end
   end
   return out

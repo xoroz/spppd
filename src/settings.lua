@@ -56,6 +56,7 @@ local records = {}
 local FILE = "settings.lua"
 local RECORDS = "records.lua"
 local CENTRAL_SYNC = "central-sync.lua"
+local CENTRAL_STATUS = "central-sync-status.txt"
 local TOP_LIMIT = 5
 
 -- Saved files are data: run them with no access to anything.
@@ -317,6 +318,8 @@ while true do
       local resp = requestViaSocket(method, url, msg.body) or requestViaCurl(method, url, msg.body)
       if type(resp) == "string" and resp ~= "" then
         resChan:push(resp)
+      elseif msg.cmd == "fetch" then
+        resChan:push("__ERR__")
       end
     end
   end
@@ -437,34 +440,77 @@ function settings.mergeCentral(data)
 end
 
 settings.parseCentralLua = parseLuaTable
+settings.syncState = "idle"
+settings.syncStartedAt = 0
 
 function settings.pollSync()
   pcall(function()
     if love.filesystem.getInfo(CENTRAL_SYNC) then
       local synced = loadTable(CENTRAL_SYNC)
       love.filesystem.remove(CENTRAL_SYNC)
-      if synced then settings.mergeCentral(synced) end
+      if synced then
+        settings.mergeCentral(synced)
+        settings.syncState = "central"
+      end
+    end
+    if love.filesystem.getInfo(CENTRAL_STATUS) then
+      local rawStatus = love.filesystem.read(CENTRAL_STATUS)
+      love.filesystem.remove(CENTRAL_STATUS)
+      local st = type(rawStatus) == "string" and rawStatus:match("^%s*(%a+)") or nil
+      if st == "central" or st == "local" then
+        settings.syncState = st
+      end
     end
     if love and love.thread and love.thread.getChannel then
       local resChan = love.thread.getChannel("spppd_central_res")
       while resChan do
         local raw = resChan:pop()
         if not raw then break end
-        local parsed = parseLuaTable(raw)
-        if parsed then settings.mergeCentral(parsed) end
+        if raw == "__ERR__" then
+          if settings.syncState == "syncing" then
+            settings.syncState = "local"
+          end
+        else
+          local parsed = parseLuaTable(raw)
+          if parsed then
+            settings.mergeCentral(parsed)
+            settings.syncState = "central"
+          elseif settings.syncState == "syncing" then
+            settings.syncState = "local"
+          end
+        end
       end
     end
     local path = centralFilePath()
     if path then
       local central = loadExternalTable(path)
-      if central then settings.mergeCentral(central) end
+      if central then
+        settings.mergeCentral(central)
+        settings.syncState = "central"
+      end
+    end
+    if settings.syncState == "syncing" and love and love.timer and love.timer.getTime then
+      if love.timer.getTime() - (settings.syncStartedAt or 0) > 2.5 then
+        settings.syncState = "local"
+      end
     end
   end)
 end
 
 function settings.requestSync()
-  emitWebBridge("fetch")
-  enqueueNativeCentral("fetch")
+  pcall(function()
+    if love and love.filesystem and love.filesystem.getInfo and love.filesystem.getInfo(CENTRAL_STATUS) then
+      love.filesystem.remove(CENTRAL_STATUS)
+    end
+  end)
+  local startedWeb = emitWebBridge("fetch")
+  local startedNative = enqueueNativeCentral("fetch")
+  if startedWeb or startedNative then
+    settings.syncState = "syncing"
+    settings.syncStartedAt = (love and love.timer and love.timer.getTime and love.timer.getTime()) or 0
+  else
+    settings.syncState = "local"
+  end
   settings.pollSync()
 end
 
@@ -547,7 +593,59 @@ end
 
 function settings.bestTrackLap(trackName)
   local top = settings.topGhosts(trackName)
-  return top[1] and top[1].time or nil
+  if top[1] and top[1].time then return top[1].time end
+  local all = settings.trackRecords(trackName)
+  return all[1] and all[1].time or nil
+end
+
+-- Returns up to TOP_LIMIT fastest records for a track (central + local ghosts
+-- and any legacy local car bests), sorted fastest first.
+function settings.trackRecords(trackName)
+  if not trackName then return {} end
+  settings.pollSync()
+  local merged = {}
+  local seen = {}
+  local function push(item)
+    if type(item) ~= "table" or type(item.time) ~= "number" or item.time <= 0 then return end
+    local rounded = math.floor(item.time * 1000 + 0.5)
+    local key = tostring(item.car or "") .. ":" .. rounded .. ":" .. tostring(item.rules or "clean")
+    if seen[key] then return end
+    seen[key] = true
+    merged[#merged + 1] = {
+      time = item.time,
+      car = item.car,
+      hue = item.hue or 1,
+      name = item.name or "YOU",
+      rules = item.rules == "open" and "open" or "clean",
+      ghost = item.ghost,
+    }
+  end
+
+  local list = records[topKey(trackName)]
+  if type(list) == "table" then
+    for _, item in ipairs(list) do push(item) end
+  end
+
+  local prefix = tostring(trackName) .. "/"
+  for k, v in pairs(records) do
+    if type(k) == "string" and k:sub(1, #prefix) == prefix and type(v) == "table" and type(v.time) == "number" then
+      local rest = k:sub(#prefix + 1)
+      local carId = rest:gsub("/open$", "")
+      local rules = rest:match("/open$") and "open" or "clean"
+      push({
+        time = v.time,
+        car = v.car or carId,
+        hue = v.hue or 1,
+        name = v.name or "YOU",
+        rules = rules,
+        ghost = v.ghost,
+      })
+    end
+  end
+
+  table.sort(merged, function(a, b) return a.time < b.time end)
+  while #merged > TOP_LIMIT do merged[#merged] = nil end
+  return merged
 end
 
 -- Returns true when this lap is a new record for this car/rules, while also

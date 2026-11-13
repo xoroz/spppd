@@ -114,6 +114,52 @@ h.describe("settings", function()
     love.filesystem.remove("records.lua")
   end)
 
+  h.it("tracks central sync state, falls back to local, and exposes trackRecords + flags", function()
+    local flags = require("src/flags")
+    local menu = require("src/menu")
+    love.filesystem.remove("records.lua")
+    love.filesystem.remove("central-sync.lua")
+    love.filesystem.remove("central-sync-status.txt")
+    settings.centralFile = "/nonexistent/unavailable/spppd-central-records.lua"
+    settings.load()
+    h.assertEq(settings.syncState, "local", "falls back to local when central fetch unavailable in tests")
+
+    -- Central status 'central' + central-sync.lua populate trackRecords and mark central
+    love.filesystem.write("central-sync.lua", "return { imola = { { time = 71.25, car = 'rocket', hue = 2, name = 'SENNA', rules = 'clean', ghost = {} } } }\n")
+    love.filesystem.write("central-sync-status.txt", "central")
+    settings.pollSync()
+    h.assertEq(settings.syncState, "central")
+    local imolaRecs = settings.trackRecords("imola")
+    h.assertEq(#imolaRecs, 1)
+    h.assertEq(imolaRecs[1].name, "SENNA")
+    h.assertEq(imolaRecs[1].time, 71.25)
+
+    -- Bridge signaling 'local' flips syncState cleanly without losing existing records
+    settings.syncState = "syncing"
+    love.filesystem.write("central-sync-status.txt", "local")
+    settings.pollSync()
+    h.assertEq(settings.syncState, "local")
+    h.assertEq(settings.trackRecords("imola")[1].time, 71.25)
+
+    -- Real-circuit flags and Records menu rows
+    for _, code in ipairs({ "IT", "ES", "AT", "GB", "BR", "US", "MC" }) do
+      h.assertTrue(flags.info(code) ~= nil, "flag metadata exists for " .. code)
+      h.assertEq(#flags.palette(code), 3, "palette has 3 stripes for " .. code)
+    end
+    menu.recordsFilter = "real"
+    local realRows = menu.recordsRows()
+    local flagCount = 0
+    for _, r in ipairs(realRows) do
+      if r.flag then flagCount = flagCount + 1 end
+    end
+    h.assertTrue(flagCount >= 9, "RECORDS screen lists all 9 real circuits with flags")
+    menu.recordsFilter = "all"
+    settings.centralFile = nil
+    love.filesystem.remove("records.lua")
+    love.filesystem.remove("central-sync.lua")
+    love.filesystem.remove("central-sync-status.txt")
+  end)
+
   h.it("keeps the top 5 ghosts per track and falls back to local when central is unavailable", function()
     love.filesystem.remove("records.lua")
     love.filesystem.remove("central-sync.lua")

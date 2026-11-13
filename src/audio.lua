@@ -1091,7 +1091,7 @@ local MAX_WORKERS = 6
 -- done, letting the splash draw meanwhile. A thread that fails just leaves its
 -- sounds out, and get renders those here as before.
 function audio.prerender(workers)
-  if not (cache.folder and love.thread and love.system) then return 0 end
+  if love._os == "Web" or not (cache.folder and love.thread and love.system) then return 0 end
   workers = workers or math.max(1, math.min(MAX_WORKERS, love.system.getProcessorCount() - 1))
   local queue, done = love.thread.newChannel(), love.thread.newChannel()
   for _, job in ipairs(audio.jobs()) do queue:push(job.name) end

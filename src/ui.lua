@@ -1,12 +1,14 @@
 -- Immediate-mode UI: one list widget that works the same with mouse,
 -- keyboard and gamepad, plus text and shape helpers.
 local colors = require("src/colors")
+local flags = require("src/flags")
 
 local ui = {
   mx = 0, my = 0,
   clicked = false,
   nav = {},
   focus = {},
+  scroll = {},
   editing = nil,
   fonts = {},
   usingMouse = false,
@@ -211,12 +213,13 @@ function ui.panel(x, y, w, h, alpha)
 end
 
 -- List widget ---------------------------------------------------------------
--- items: { label =, value = string|nil, activate = fn, left = fn, right = fn,
---          disabled = bool, hint = string }
+-- items: { label =, value = string|nil, flag = code|nil, activate = fn,
+--          left = fn, right = fn, disabled = bool, hint = string }
 -- Returns the focused item so a screen can show context for it.
-function ui.list(id, items, x, y, w, rowH, size, s)
-  local focus = ui.focus[id] or 1
+function ui.list(id, items, x, y, w, rowH, size, s, opts)
   local count = #items
+  if count == 0 then return nil end
+  local focus = ui.focus[id] or 1
   focus = math.max(1, math.min(count, focus))
 
   local function step(direction)
@@ -229,8 +232,23 @@ function ui.list(id, items, x, y, w, rowH, size, s)
   if ui.nav.down then step(1) ui.played = "click" end
   if items[focus].disabled then step(1) end
 
-  for i, item in ipairs(items) do
-    local ry = y + (i - 1) * rowH
+  local maxRows = opts and opts.maxRows and math.max(1, math.floor(opts.maxRows)) or count
+  local visible = math.min(count, maxRows)
+  local offset = math.max(0, math.min(count - visible, ui.scroll[id] or 0))
+  if focus < offset + 1 then
+    offset = focus - 1
+  elseif focus > offset + visible then
+    offset = focus - visible
+  end
+  offset = math.max(0, math.min(count - visible, offset))
+  ui.scroll[id] = offset
+
+  local startIdx = offset + 1
+  local endIdx = offset + visible
+
+  for i = startIdx, endIdx do
+    local item = items[i]
+    local ry = y + (i - startIdx) * rowH
     local hovered = ui.usingMouse and inside(x, ry, w, rowH) and not item.disabled
     if hovered then
       if focus ~= i then ui.played = "click" end
@@ -244,6 +262,11 @@ function ui.list(id, items, x, y, w, rowH, size, s)
     end
     local textX = x + 14 * s
     local textY = ry + (rowH - size) / 2
+    if item.flag then
+      local fw, fh = 11 * s, 7 * s
+      flags.draw(item.flag, textX, ry + (rowH - fh) / 2, fw, fh)
+      textX = textX + fw + 5 * s
+    end
     ui.text(item.label, textX, textY, size, labelColor)
 
     local value = item.value
@@ -269,6 +292,16 @@ function ui.list(id, items, x, y, w, rowH, size, s)
         ui.played = "select"
       end
       ui.clicked = false
+    end
+  end
+
+  if visible < count then
+    local arrowSize = math.max(4 * s, size * 0.65)
+    if startIdx > 1 then
+      ui.text("^", x + 2 * s, y - arrowSize - 1 * s, arrowSize, colors.marshal)
+    end
+    if endIdx < count then
+      ui.text("v", x + 2 * s, y + visible * rowH + 2 * s, arrowSize, colors.marshal)
     end
   end
 
