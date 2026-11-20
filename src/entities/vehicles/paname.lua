@@ -1,4 +1,4 @@
-local base = require("src/entities/vehicles/base")
+local base = require("src.entities.vehicles.base")
 
 -- Porsche Panamera GTS (976): 4.0L twin-turbo V8 petrol, 500 PS (368 kW),
 -- 660 Nm, 2104 kg, AWD, 2950 mm wheelbase, 0-100 km/h in 3.8 s, 302 km/h.

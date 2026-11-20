@@ -172,8 +172,13 @@ type pageData struct {
 	Drivers     []DriverView
 	DriverTotal int
 	DriverQuery string
-	Error       string
-	Notice      string
+	// The tracks section: sent in and waiting, and on the website. Only with -tracks.
+	TracksOn      bool
+	PendingTracks []Track
+	LiveTracks    []Track
+	HiddenTracks  []Track
+	Error         string
+	Notice        string
 }
 
 type analyticsView struct {
@@ -188,6 +193,7 @@ type dashboard struct {
 	store         *Store
 	pages         *template.Template
 	limiter       *loginLimiter
+	tracks        *TrackServer
 	analyticsDays int
 	now           func() time.Time
 }
@@ -196,14 +202,15 @@ type dashboard struct {
 // takes a login. Until then it only answers this machine: the connection has to
 // come from loopback, and so does the name it asked for, which stops a web page
 // using DNS tricks to reach it through a local browser.
-func newDashboard(relay *Relay, store *Store, analyticsDays int) http.Handler {
+func newDashboard(relay *Relay, store *Store, analyticsDays int, tracks *TrackServer) http.Handler {
 	d := &dashboard{
-		relay: relay, store: store, analyticsDays: analyticsDays,
+		relay: relay, store: store, analyticsDays: analyticsDays, tracks: tracks,
 		limiter: &loginLimiter{fails: make(map[string]*loginFails)},
 		now:     time.Now,
 	}
 	d.pages = template.Must(template.New("dashboard").Funcs(template.FuncMap{
 		"age": formatAge, "bytes": formatBytes, "clock": formatClock, "date": formatDate, "instant": formatInstant,
+		"code": TrackCode, "points": outlinePath, "km": func(m float64) string { return fmt.Sprintf("%.1f km", m/1000) },
 	}).Parse(dashboardHTML))
 
 	mux := http.NewServeMux()
@@ -257,6 +264,10 @@ func newDashboard(relay *Relay, store *Store, analyticsDays int) http.Handler {
 	mux.HandleFunc("/drivers/ban", d.driversAction(func(id int, by string) bool { return relay.BanDriver(id, true, by) }))
 	mux.HandleFunc("/drivers/unban", d.driversAction(func(id int, by string) bool { return relay.BanDriver(id, false, by) }))
 
+	if tracks != nil {
+		d.trackRoutes(mux)
+	}
+
 	mux.HandleFunc("/users/add", d.usersAction(d.addUser))
 	mux.HandleFunc("/users/password", d.usersAction(d.changePassword))
 	mux.HandleFunc("/users/delete", d.usersAction(d.deleteUser))
@@ -308,6 +319,9 @@ func (d *dashboard) full(r *http.Request) pageData {
 	data := d.data(r)
 	data.Users, _ = d.store.Users()
 	d.findDrivers(r, &data)
+	if d.tracks != nil {
+		d.listTracks(&data)
+	}
 	if d.relay.AnalyticsOn() {
 		data.Analytics = d.analytics()
 	}
@@ -388,6 +402,69 @@ func (d *dashboard) action(section string, run func(r *http.Request, data *pageD
 func (d *dashboard) findDrivers(r *http.Request, data *pageData) {
 	data.DriverQuery = strings.TrimSpace(r.FormValue("q"))
 	data.Drivers, data.DriverTotal = d.relay.FindDrivers(data.DriverQuery)
+}
+
+// outlinePath is a track's outline as an SVG polyline's points.
+func outlinePath(points []Point) string {
+	var b strings.Builder
+	for i, p := range points {
+		if i > 0 {
+			b.WriteByte(' ')
+		}
+		fmt.Fprintf(&b, "%g,%g", p[0], p[1])
+	}
+	return b.String()
+}
+
+// trackRoutes is the Tracks section, there only when the relay runs with -tracks.
+func (d *dashboard) trackRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("/tracks", d.authed(func(w http.ResponseWriter, r *http.Request) {
+		data := d.data(r)
+		d.listTracks(&data)
+		d.render(w, "tracks", data)
+	}))
+	mux.HandleFunc("/tracks/review", d.authed(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST only", http.StatusMethodNotAllowed)
+			return
+		}
+		data := d.data(r)
+		id, err := strconv.Atoi(r.FormValue("id"))
+		if err != nil || !d.tracks.Review(id, r.FormValue("action"), orLocal(data.Viewer.Name)) {
+			data.Error = "That track couldn't be changed. Try again."
+		}
+		d.listTracks(&data)
+		d.render(w, "tracks", data)
+	}))
+	// The new name comes from the browser's prompt (htmx's HX-Prompt header), or a
+	// title field.
+	mux.HandleFunc("/tracks/rename", d.authed(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST only", http.StatusMethodNotAllowed)
+			return
+		}
+		data := d.data(r)
+		title := r.Header.Get("HX-Prompt")
+		if title == "" {
+			title = r.FormValue("title")
+		}
+		id, err := strconv.Atoi(r.FormValue("id"))
+		if err == nil {
+			err = d.tracks.Rename(id, title, orLocal(data.Viewer.Name))
+		}
+		if err != nil {
+			data.Error = "That track couldn't be renamed: " + err.Error() + "."
+		}
+		d.listTracks(&data)
+		d.render(w, "tracks", data)
+	}))
+}
+
+func (d *dashboard) listTracks(data *pageData) {
+	data.TracksOn = true
+	data.PendingTracks, _ = d.store.Tracks(trackPending)
+	data.LiveTracks, _ = d.store.Tracks(trackLive)
+	data.HiddenTracks, _ = d.store.Tracks(trackHidden)
 }
 
 // driversAction changes one driver, then shows the drivers section again with

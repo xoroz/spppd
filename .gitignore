@@ -9,6 +9,8 @@ site/node_modules/
 site/dist/
 site/.astro/
 site/public/download/
+# The browser version, built by make web.
+site/public/play/
 site/src/downloads.json
 # The official server's details and dashboard password, read by the deploy scripts.
 .env
@@ -19,3 +21,5 @@ kit/
 # A go build in server/ writes the relay here.
 server/server
 texngo/data/
+# LÖVE 12 builds fetched by bin/love12.
+love-binaries/

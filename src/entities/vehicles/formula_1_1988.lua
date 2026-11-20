@@ -1,4 +1,4 @@
-local base = require("src/entities/vehicles/base")
+local base = require("src.entities.vehicles.base")
 
 -- McLaren MP4/4 (1988 Formula 1): Honda RA168E 1.5L twin-turbo V6,
 -- ~685 hp (~510 kW) @ 12500 rpm, 540 kg, ~335-345 km/h, 0-100 in ~2.5 s.

@@ -1,12 +1,14 @@
-// Bridge between the game (Lua in love.js) and the page: the browser window's size.
+// Bridge between the game (Lua in love.js) and the page: the browser window's size,
+// and saving the save folder to IndexedDB (see sync below).
 // Lua can't see the browser window, so it prints a request line:
 //   SPPPD_WEB|<save dir>|hello     -> the page starts writing <save dir>/viewport.txt
 // viewport.txt holds "<width> <height> <phone>" of the browser window in CSS pixels,
 // phone being 1 on a touch screen without a mouse; src/web.lua resizes the game's
 // window to it, so the game fills the screen and follows rotation on a phone, and a
 // phone gets the touch controls and the bigger menus.
-// build.sh injects this file into the love.js index.html before game.js.
+// The /play/ page (site/src/pages/play.astro) loads this first, then web/play.js.
 (function () {
+  var Module = window.Module = window.Module || {};
   var PREFIX = "SPPPD_WEB|";
   var print = Module.print || console.log.bind(console);
 
@@ -51,12 +53,34 @@
     try { sendViewport(); } catch (e) { saveDir = null; }
   }]);
 
+  // love.js copies the save folder into IndexedDB only as the page unloads, and
+  // doesn't wait for it to finish. The game asks after it writes (src/web.lua), and
+  // the page copies it whenever it's hidden, which a phone does before killing a tab.
+  // bin/web-build exports FS.syncfs as Module.FS_syncfs.
+  var syncing = false, again = false;
+  function sync() {
+    if (!Module.FS_syncfs) return;
+    if (syncing) { again = true; return; }
+    syncing = true;
+    Module.FS_syncfs(false, function (err) {
+      if (err) console.error("saving to IndexedDB failed", err);
+      syncing = false;
+      if (again) { again = false; sync(); }
+    });
+  }
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState === "hidden") sync();
+  });
+  window.addEventListener("pagehide", sync);
+
   Module.print = function (line) {
     if (typeof line === "string" && line.indexOf(PREFIX) === 0) {
       var parts = line.split("|");
       if (parts[2] === "hello") {
         saveDir = parts[1];
         sendViewport();
+      } else if (parts[2] === "sync") {
+        sync();
       }
     } else {
       print(line);

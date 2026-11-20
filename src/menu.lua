@@ -1,28 +1,30 @@
 -- Menus sit on a pit board down the left of the screen, with a live race
 -- running behind it. Every screen is just a list of rows.
-local ui = require("src/ui")
-local state = require("src/state")
-local colors = require("src/colors")
-local config = require("src/config")
-local settings = require("src/settings")
-local garage = require("src/entities/garage")
-local catalog = require("src/tracks/catalog")
-local Track = require("src/sim/track")
-local rm = require("src/race_manager")
-local minimap = require("src/minimap")
-local sprites = require("src/render/car_sprites")
-local hud = require("src/hud")
-local audio = require("src/audio")
-local radio = require("src/radio")
-local music = require("src/music")
-local network = require("src/network_manager")
-local account = require("src/account")
-local dynamics = require("src/sim/dynamics")
-local carStats = require("src/sim/car_stats")
-local cheats = require("src/cheats")
-local input = require("src/input")
-local web = require("src/web")
-local flags = require("src/flags")
+local ui = require("src.ui")
+local state = require("src.state")
+local colors = require("src.colors")
+local config = require("src.config")
+local settings = require("src.settings")
+local garage = require("src.entities.garage")
+local catalog = require("src.tracks.catalog")
+local Track = require("src.sim.track")
+local rm = require("src.race_manager")
+local minimap = require("src.minimap")
+local sprites = require("src.render.car_sprites")
+local hud = require("src.hud")
+local audio = require("src.audio")
+local radio = require("src.radio")
+local music = require("src.music")
+local network = require("src.network_manager")
+local account = require("src.account")
+local dynamics = require("src.sim.dynamics")
+local carStats = require("src.sim.car_stats")
+local cheats = require("src.cheats")
+local input = require("src.input")
+local web = require("src.web")
+local flags = require("src.flags")
+local net = require("src.net_http")
+local online = require("src.tracks.online")
 
 local menu = { screen = "main", recordsFilter = "all" }
 
@@ -46,6 +48,8 @@ local TIME_NAMES = { day = "DAY", dusk = "DUSK", night = "NIGHT", midnight = "MI
 local DIFFICULTIES = { "rookie", "pro", "ace" }
 local DIFFICULTY_NAMES = { rookie = "ROOKIE", pro = "PRO", ace = "ACE" }
 local ASSISTS = { "easy", "arcade", "sport", "sim" }
+-- EASY is only for racing the computer: online it drives ARCADE.
+local ONLINE_ASSISTS = { "arcade", "sport", "sim" }
 local ASSIST_NAMES = { easy = "EASY", arcade = "ARCADE", sport = "SPORT", sim = "SIM" }
 local RULES = { "open", "clean" }
 local RULE_NAMES = { open = "OPEN", clean = "CLEAN" }
@@ -54,7 +58,7 @@ local RULE_HINTS = {
   clean = "Off the road, a cut, a reset or a wreck voids the lap.",
 }
 local ASSIST_HINTS = {
-  easy = "ARCADE with 50% more grip on every car. The AI stays on ARCADE.",
+  easy = "ARCADE with 50% more grip on every car. Online it drives ARCADE.",
   arcade = "Big grip and easy drifts. Hold the handbrake to slide.",
   sport = "Realistic grip, with driver aids as a safety net.",
   sim = "No aids. The car does exactly what you ask.",
@@ -183,6 +187,8 @@ function menu.go(screen)
   end
   menu.screen = screen
   ui.focus[screen] = ui.focus[screen] or 1
+  ui.cancelPress()
+  ui.cancelEditing()
   capture, note = nil, nil
 end
 
@@ -201,9 +207,37 @@ function menu.enter()
   end
 end
 
+-- QUICK RACE's own track and car, picked at random when the game opens and again
+-- after every finished race. The race's laps, grid and time are the setup's.
+-- RACE keeps what you picked there.
+local quick
+
+function menu.rollQuick()
+  local tracks, last = catalog.all(), quick
+  local entry, spec
+  for _ = 1, 4 do
+    entry = tracks[love.math.random(#tracks)]
+    spec = garage[love.math.random(#garage)]
+    -- Not the same race twice in a row, where there's another to have.
+    if not last or #tracks < 2 or entry.name ~= last.track then break end
+  end
+  quick = { track = entry.name, car = spec.id }
+end
+
+function menu.quickPick()
+  if not quick then menu.rollQuick() end
+  local entry = catalog.find(quick.track)
+  -- A saved track deleted since, or one that won't build, gives way to another.
+  if not entry or not pcall(cachedTrack, entry) then
+    menu.rollQuick()
+    entry = catalog.find(quick.track) or catalog.builtin()[1]
+  end
+  return entry, garage.byId(quick.car) or currentCar()
+end
+
 function menu.startRace(extra)
   extra = extra or {}
-  local spec = currentCar()
+  local spec = extra.spec or currentCar()
   menu.demoRunning = false
   menu.ghostDropdown = false
   local mode = extra.online and "race" or settings.mode
@@ -242,7 +276,7 @@ function menu.startRace(extra)
     entry = entry,
     track = entry and cachedTrack(entry).track,
     spec = spec,
-    color = currentColor(spec),
+    color = extra.spec and spec.color or currentColor(spec),
     laps = extra.laps or (mode == "race" and settings.laps or 9999),
     opponents = mode == "race" and settings.opponents or 0,
     mixCategories = settings.mixCategories,
@@ -259,18 +293,19 @@ end
 
 -- Screens ------------------------------------------------------------------
 
--- What QUICK RACE starts: the race as it was last set up.
+-- What QUICK RACE starts.
 local function quickHint()
-  local entry = currentEntry()
+  local entry, spec = menu.quickPick()
   local laps = settings.laps == 1 and "1 LAP" or settings.laps .. " LAPS"
-  return (entry and entry.title or "") .. "  " .. currentCar().name .. "  " .. laps
+  return (entry and entry.title or "") .. "  " .. spec.name .. "  " .. laps
 end
 
 local function mainRows()
   local rows = {
     { label = "QUICK RACE", activate = function()
         settings.mode = "race"
-        menu.startRace()
+        local entry, spec = menu.quickPick()
+        menu.startRace({ entry = entry, spec = spec })
       end },
     { label = "RACE", activate = function() settings.mode = "race" menu.go("setup") end },
     { label = "TIME TRIAL", activate = function() settings.mode = "trial" menu.go("setup") end },
@@ -285,6 +320,9 @@ local function mainRows()
   if not web.on then
     rows[#rows + 1] = { label = "ONLINE", activate = function() settings.mode = "race" menu.go("online") end }
   end
+  -- Tracks people made, from spppd.xyz/tracks. The browser build can't fetch
+  -- them, so it opens the page instead.
+  rows[#rows + 1] = { label = "TRACKS ONLINE", activate = function() menu.openTracks() end }
   -- The editor needs a keyboard and a right click.
   if not ui.mobile then
     rows[#rows + 1] = { label = "TRACK EDITOR", activate = function() menu.openEditor() end }
@@ -471,6 +509,15 @@ local function handlingRow(label, key)
     function(v) settings[key] = v end, ASSISTS, ASSIST_NAMES)
 end
 
+-- The handling a driver races with online, where there is no EASY.
+local function onlineHandling()
+  return settings.assists == "easy" and "arcade" or settings.assists
+end
+
+local function onlineHandlingRow()
+  return stepper("HANDLING", onlineHandling, function(v) settings.assists = v end, ONLINE_ASSISTS, ASSIST_NAMES)
+end
+
 -- Picks whose car the rows under it set.
 local function driverRow()
   return stepper("DRIVER", function() return menu.driver end,
@@ -538,7 +585,7 @@ local function setupRows()
   rows[#rows + 1] = timeRow()
   if not two then rows[#rows + 1] = handlingRow("HANDLING", "assists") end
   -- A phone's save folder is out of reach, so there's no way to fill it there.
-  if mode == "freestyle" and not ui.mobile then
+  if mode == "freestyle" and not ui.mobile and not web.on then
     rows[#rows + 1] = stepper("RADIO", function() return settings.radioVolume end,
       function(v) settings.radioVolume = v end, VOLUMES, VOLUME_NAMES)
     rows[#rows + 1] = { label = "MUSIC FOLDER", value = function()
@@ -549,7 +596,15 @@ local function setupRows()
   if mode == "race" or mode == "trial" then
     addGhostRows(rows)
   end
-  rows[#rows + 1] = { label = "BACK", activate = function() menu.go("main") end }
+  local start = { label = "START", activate = function() menu.startRace() end }
+  local back = { label = "BACK", activate = function() menu.go("main") end }
+  if ui.mobile then
+    -- A phone's list pages, so START stays in the bottom slot of every page.
+    rows[#rows + 1], rows[#rows + 2] = back, start
+    rows.pinLast = true
+  else
+    rows[#rows + 1], rows[#rows + 2] = start, back
+  end
   return rows
 end
 menu.setupRows = setupRows
@@ -574,6 +629,16 @@ local function codeRow()
     end }
 end
 
+-- The server for online races and TRACKS ONLINE, on both screens.
+local function serverRow()
+  return { label = "SERVER", value = function()
+      return ui.editing and ui.editing.field == "server" and ui.editing.value .. "_" or settings.server
+    end, activate = function()
+      ui.startEditing(settings.server, function(v) settings.server = v save() end, "^[%w%.:%-]$", 40)
+      ui.editing.field = "server"
+    end }
+end
+
 local function settingsRows()
   local rows = {
     playerNameRow(),
@@ -594,14 +659,14 @@ local function settingsRows()
       { "kmh", "mph" }, { kmh = "KM/H", mph = "MPH" }),
     stepper("EFFECTS", function() return settings.quality end, function(v)
       settings.quality = v
-      require("src/render/post").quality = v
+      require("src.render.post").quality = v
     end, QUALITY, { high = "HIGH", low = "LOW" }),
     toggle("PACE NOTES", "paceNotes"),
     toggle("MINIMAP", "minimap"),
     toggle("SHOW FPS", "showFps"),
   }
-  -- A phone always fills the screen.
-  if not ui.mobile then
+  -- A phone always fills the screen, and a browser has its own (F11).
+  if not ui.mobile and not web.on then
     local flip = function()
       settings.fullscreen = not settings.fullscreen
       love.window.setFullscreen(settings.fullscreen, "desktop")
@@ -610,6 +675,7 @@ local function settingsRows()
     rows[#rows + 1] = { label = "FULLSCREEN", value = function() return settings.fullscreen and "ON" or "OFF" end,
       left = flip, right = flip, activate = flip }
   end
+  rows[#rows + 1] = serverRow()
   rows[#rows + 1] = codeRow()
   rows[#rows + 1] = { label = "BACK", activate = function() menu.go("main") end }
   return rows
@@ -718,6 +784,135 @@ local function startCapture(kind, action)
 end
 
 menu.startCapture = startCapture
+
+-- TRACKS ONLINE ----------------------------------------------------------------
+
+local tracksFromEditor = false
+
+-- From the editor, back goes back there, and a track you have opens in it.
+function menu.openTracks(fromEditor)
+  if not net.available() then
+    love.system.openURL(config.TRACKS_URL)
+    return
+  end
+  if fromEditor then menu.enter() end
+  tracksFromEditor = fromEditor or false
+  online.open()
+  menu.go("tracks")
+end
+
+local function leaveTracks()
+  if tracksFromEditor then menu.openEditor() else menu.go("main") end
+end
+
+local function useTrack(name)
+  if tracksFromEditor then
+    local entry = catalog.find(name)
+    menu.openEditor()
+    if entry then require("src.editor").openEntry(entry) end
+    return
+  end
+  settings.track, settings.mode = name, "race"
+  save()
+  menu.go("setup")
+end
+
+local function tracksRows()
+  local rows = {}
+  if online.status == "ready" then
+    for _, track in ipairs(online.tracks) do
+      rows[#rows + 1] = {
+        label = track.title,
+        track = track,
+        value = function() return online.have(track) and "GOT" or "GET" end,
+        activate = function()
+          local have = online.have(track)
+          if have then
+            useTrack(have.name)
+          elseif online.take(track) then
+            say("SAVED " .. track.title)
+          else
+            say("COULDN'T SAVE IT")
+          end
+        end,
+      }
+    end
+    if #online.tracks == 0 then rows[#rows + 1] = { label = "NO TRACKS YET", disabled = true } end
+    rows[#rows + 1] = { label = "REFRESH", activate = online.fetch }
+  elseif online.status == "error" then
+    rows[#rows + 1] = { label = "TRY AGAIN", activate = online.fetch }
+  else
+    rows[#rows + 1] = { label = "LOADING...", disabled = true }
+  end
+  rows[#rows + 1] = { label = "MY TRACKS", activate = function() menu.openMyTracks() end }
+  rows[#rows + 1] = { label = "BACK", activate = leaveTracks }
+  return rows
+end
+
+-- MY TRACKS: the saved ones, got online or made in the editor, to delete. The
+-- built-ins aren't listed. A track asks for a second press before it goes.
+local doomed = nil  -- the name waiting for its second press
+
+function menu.openMyTracks()
+  doomed = nil
+  catalog.refresh()
+  menu.go("mytracks")
+end
+
+-- A saved track's shape for the preview, fitted in the same 100 x 100 box the
+-- server fits its outlines in.
+local outlines = setmetatable({}, { __mode = "k" })
+function menu.trackOutline(def)
+  if outlines[def] then return outlines[def] end
+  local out = {}
+  local nodes = def.nodes or {}
+  local minX, minY, maxX, maxY = math.huge, math.huge, -math.huge, -math.huge
+  for _, n in ipairs(nodes) do
+    minX, maxX = math.min(minX, n.x), math.max(maxX, n.x)
+    minY, maxY = math.min(minY, n.y), math.max(maxY, n.y)
+  end
+  local span = math.max(maxX - minX, maxY - minY)
+  if #nodes >= 2 and span > 0 then
+    local ox, oy = (span - (maxX - minX)) / 2, (span - (maxY - minY)) / 2
+    for _, n in ipairs(nodes) do
+      out[#out + 1] = { (n.x - minX + ox) / span * 100, (n.y - minY + oy) / span * 100 }
+    end
+  end
+  outlines[def] = out
+  return out
+end
+
+local function myTracksRows()
+  local rows = {}
+  for _, entry in ipairs(catalog.user()) do
+    local name = entry.name
+    rows[#rows + 1] = {
+      label = doomed == name and "PRESS AGAIN TO DELETE" or entry.title,
+      value = doomed ~= name and "DELETE" or nil,
+      track = { title = entry.title, author = entry.author or "YOU", theme = entry.def.theme,
+        outline = menu.trackOutline(entry.def), hint = "DELETE TAKES IT OFF THIS DEVICE" },
+      activate = function()
+        if doomed ~= name then
+          doomed = name
+          return
+        end
+        doomed = nil
+        if catalog.remove(name) then
+          if settings.track == name then
+            settings.track = catalog.builtin()[1].name
+            save()
+          end
+          say("DELETED " .. entry.title)
+        else
+          say("COULDN'T DELETE IT")
+        end
+      end,
+    }
+  end
+  if #rows == 0 then rows[#rows + 1] = { label = "NO SAVED TRACKS", disabled = true } end
+  rows[#rows + 1] = { label = "BACK", activate = function() menu.go("tracks") end }
+  return rows
+end
 
 function menu.capturing()
   return capture
@@ -849,7 +1044,7 @@ end
 -- What a driver brings to an online race: car, paint, and the handling and
 -- gearbox they drive with.
 local function onlineSelf()
-  return { car = currentCar().id, paint = settings.hue, handling = settings.assists, gearbox = settings.gearbox }
+  return { car = currentCar().id, paint = settings.hue, handling = onlineHandling(), gearbox = settings.gearbox }
 end
 
 -- How a driver's car is set up, for the lobby and the results. A 3.0 game
@@ -893,28 +1088,33 @@ local function onlineRows()
     rows[#rows + 1] = back
     return rows
   end
-  return {
-    { label = "SERVER", value = function()
-        return ui.editing and ui.editing.field == "server" and ui.editing.value .. "_" or settings.server
-      end, activate = function()
-        ui.startEditing(settings.server, function(v) settings.server = v save() end, "^[%w%.:%-]$", 40)
-        ui.editing.field = "server"
-      end },
+  local server = serverRow()
+  local setup = {
     carRow(), paintRow(),
-    handlingRow("HANDLING", "assists"),
+    onlineHandlingRow(),
     stepper("GEARBOX", function() return settings.gearbox end, function(v) settings.gearbox = v end,
       { "auto", "manual" }, { auto = "AUTO", manual = "MANUAL" }),
     { label = "PROFILE", value = function()
         local driver = account.driver()
         return driver and driver.name or "NO NAME"
       end, activate = function() menu.openProfile() end },
+  }
+  local actions = {
     { label = "QUICK MATCH", activate = function() menu.quickMatch() end },
     { label = "HOST A ROOM", activate = function() menu.go("host") end },
     room,
     { label = "JOIN A ROOM", disabled = network.roomCode == "", activate = function() menu.connect("join") end },
-    { label = "PRIVACY & TERMS", activate = function() love.system.openURL(config.PRIVACY_URL) end },
-    back,
   }
+  local privacy = { label = "PRIVACY & TERMS", activate = function() love.system.openURL(config.PRIVACY_URL) end }
+  -- A phone's list pages, so the ways in come first and the server, which is
+  -- seldom changed, goes down with the rest.
+  local order = ui.mobile and { actions, setup, { server, privacy, back } }
+    or { { server }, setup, actions, { privacy, back } }
+  local rows = {}
+  for _, group in ipairs(order) do
+    for _, row in ipairs(group) do rows[#rows + 1] = row end
+  end
+  return rows
 end
 menu.onlineRows = onlineRows
 
@@ -1061,7 +1261,7 @@ function menu.testDrive(doc, track)
 end
 
 function menu.openEditor()
-  require("src/editor").open()
+  require("src.editor").open()
   rm.stop()
   menu.demoRunning = false
   state.screen = "editor"
@@ -1157,19 +1357,64 @@ local SCREENS = {
   online = { rows = onlineRows },
   profile = { rows = profileRows },
   host = { rows = hostRows },
+  tracks = { rows = tracksRows },
+  mytracks = { rows = myTracksRows },
 }
 
+-- A phone's rows are a thumb's height, about 6 mm on the A04, the same as its
+-- main menu. A list longer than the screen turns pages with MORE rows.
+local PHONE_ROW = 22
+
+-- On a phone, a screen under the main menu shrinks the logo so the list has
+-- room, and everything below the header moves up by this much.
+local function headerDrop(s)
+  return ui.mobile and menu.screen ~= "main" and 28 * s or 0
+end
+
+-- A screen's rows as they stand. On a phone the header's BACK button does what a
+-- BACK row would, so the rows go and the lists are a row shorter.
+function menu.rows(screen)
+  local rows = SCREENS[screen].rows()
+  if not ui.mobile then return rows end
+  local kept = { pinLast = rows.pinLast }
+  for _, row in ipairs(rows) do
+    if row.label ~= "BACK" then kept[#kept + 1] = row end
+  end
+  return kept
+end
+
+-- Where a phone's BACK button sits: in the compact header, at the right end of
+-- the kerb, as tall as a row.
+function menu.backButton(w, s)
+  local bw = 48 * s
+  return w - 14 * s - bw, 2 * s, bw, 24 * s
+end
+
+function menu.boardWidth(sw, sh, s)
+  return sw > sh and math.min(sw, math.max(250 * s, sw * 0.4)) or sw
+end
+
 local function drawBoard(sw, sh, s, title, titleColor)
-  local w = sw > sh and math.min(sw, math.max(250 * s, sw * 0.4)) or sw
-  -- The board's backing reaches under a notch on the left, to the screen's edge.
-  local left = math.min(0, (love.graphics.inverseTransformPoint(0, 0)))
-  ui.panel(left, 0, w - left, sh, 0.9)
+  local w = menu.boardWidth(sw, sh, s)
+  -- The board's backing reaches past the safe area to the screen's edges: under
+  -- a notch on the left, and to the top and bottom.
+  local left, top = love.graphics.inverseTransformPoint(0, 0)
+  local _, bottom = love.graphics.inverseTransformPoint(0, love.graphics.getHeight())
+  left, top, bottom = math.min(0, left), math.min(0, top), math.max(sh, bottom)
+  ui.panel(left, top, w - left, bottom - top, 0.9)
   love.graphics.setColor(colors.kerb)
-  love.graphics.rectangle("fill", w, 0, 2 * s, sh)
-  ui.kerb(14 * s, 44 * s, w - 28 * s, 4 * s, s)
-  ui.text("SPPPD", 14 * s, 14 * s, 22 * s, colors.marshal)
+  love.graphics.rectangle("fill", w, top, 2 * s, bottom - top)
+  local drop = headerDrop(s)
+  if drop > 0 then
+    local bx = menu.backButton(w, s)
+    ui.kerb(14 * s, 20 * s, bx - 20 * s, 3 * s, s)
+    ui.text("SPPPD", 14 * s, 7 * s, 10 * s, colors.marshal)
+  else
+    ui.kerb(14 * s, 44 * s, w - 28 * s, 4 * s, s)
+    ui.text("SPPPD", 14 * s, 14 * s, 22 * s, colors.marshal)
+  end
   if title then
-    ui.text(title, 14 * s, 56 * s, 7 * s, titleColor or colors.marshal)
+    ui.text(title, 14 * s, 56 * s - drop, 7 * s, titleColor or colors.marshal)
   end
   ui.text("v" .. config.VERSION .. "  XOROZ", 14 * s, sh - 12 * s, 5 * s, colors.muted)
   return w
@@ -1225,26 +1470,48 @@ local function drawCarStats(spec, x, y, w, s)
   end
 end
 
-local function drawOnlineNotes(x, y, w, s)
-  local size = 6 * s
-  local font = ui.font(size)
-  local inner = w - 12 * s
-  local gap = 4 * s
-  local height = 22 * s
-  local heights = {}
+-- The notes in one column. Where that would run past bottom, as on a phone, they
+-- go in two, and then two in the smaller print the car stats use.
+local NOTE_LAYOUTS = { { columns = 1, size = 6, gap = 4 }, { columns = 2, size = 6, gap = 2 },
+  { columns = 2, size = 5, gap = 2 } }
+
+local function layOutNotes(w, s, layout)
+  local font = ui.font(layout.size * s)
+  local inner = (w - 12 * s - (layout.columns - 1) * 8 * s) / layout.columns
+  local heights, total = {}, 0
   for i, note in ipairs(menu.ONLINE_NOTES) do
     local _, lines = font:getWrap(note, inner)
-    heights[i] = #lines * font:getHeight() * font:getLineHeight() + gap
-    height = height + heights[i]
+    heights[i] = #lines * font:getHeight() * font:getLineHeight() + layout.gap * s
+    total = total + heights[i]
   end
-  ui.panel(x, y, w, height, 0.82)
-  ui.text("BEFORE YOU RACE", x + 6 * s, y + 7 * s, size, colors.kerb)
-  local ty = y + 20 * s
+  -- Where the second column starts, so the taller of the two is as short as it gets.
+  local split, tall = #heights, total
+  if layout.columns == 2 then
+    local sum = 0
+    for i, h in ipairs(heights) do
+      sum = sum + h
+      local taller = math.max(sum, total - sum)
+      if taller < tall then tall, split = taller, i end
+    end
+  end
+  return { inner = inner, heights = heights, split = split, height = 22 * s + tall, size = layout.size * s }
+end
+
+local function drawOnlineNotes(x, y, w, s, bottom)
+  local fit
+  for _, layout in ipairs(NOTE_LAYOUTS) do
+    fit = layOutNotes(w, s, layout)
+    if y + fit.height <= bottom then break end
+  end
+  ui.panel(x, y, w, fit.height, 0.82)
+  ui.text("BEFORE YOU RACE", x + 6 * s, y + 7 * s, 6 * s, colors.kerb)
+  local tx, ty = x + 6 * s, y + 20 * s
   for i, note in ipairs(menu.ONLINE_NOTES) do
-    ui.text(note, x + 6 * s, ty, size, colors.paint, "left", inner)
-    ty = ty + heights[i]
+    ui.text(note, tx, ty, fit.size, colors.paint, "left", fit.inner)
+    ty = ty + fit.heights[i]
+    if i == fit.split then tx, ty = tx + fit.inner + 8 * s, y + 20 * s end
   end
-  return y + height
+  return y + fit.height
 end
 
 local function drawSetupPreview(sw, sh, boardW, s, carOnly)
@@ -1286,6 +1553,10 @@ local function drawSetupPreview(sw, sh, boardW, s, carOnly)
     local kmText = string.format("%.2f KM", data.track.length / config.METER / 1000)
     local detail = cname and (cname .. "  " .. kmText) or kmText
     ui.text(detail, x, 14 * s + size + 8 * s, 6 * s, colors.paint, "right", w - 6 * s)
+    -- Who made it: SPPPD, or whoever sent it in to spppd.xyz/tracks.
+    if entry.author then
+      ui.text("BY " .. entry.author, x, 14 * s + size + 20 * s, 6 * s, colors.muted, "right", w - 6 * s)
+    end
     -- Freestyle times nothing, so a best lap means nothing there.
     if settings.mode ~= "freestyle" then
       local best = settings.bestLap(entry.name, spec.id, settings.trialRules)
@@ -1304,7 +1575,7 @@ local function drawSetupPreview(sw, sh, boardW, s, carOnly)
   -- The stats need a taller panel. Online, they give way to the notes over it.
   local withStats = true
   if carOnly then
-    local notesBottom = drawOnlineNotes(x, 14 * s, w, s)
+    local notesBottom = drawOnlineNotes(x, 14 * s, w, s, sh - (14 + 72 + 6) * s)
     withStats = notesBottom + 6 * s <= sh - 114 * s
   end
 
@@ -1411,6 +1682,45 @@ local function drawTrackLeaderboard(entry, x, y, w, h, s, showMap)
   end
 end
 
+local THEME_NAMES = { meadow = "MEADOW", desert = "DESERT", marina = "MARINA" }
+
+-- A track from spppd.xyz: its outline, and who made it.
+local function drawOnlineTrack(track, sw, sh, boardW, s)
+  local x = boardW + 14 * s
+  local w = sw - x - 14 * s
+  if w < 120 * s then return end
+  local size = math.min(w, sh - 80 * s)
+  ui.panel(x, 14 * s, w, size + 46 * s, 0.82)
+  local outline = track.outline
+  if #outline >= 2 then
+    -- The server fits every outline in a 100 x 100 box.
+    local box = size - 20 * s
+    local ox, oy = x + (w - box) / 2, 24 * s
+    local points = {}
+    for _, p in ipairs(outline) do
+      points[#points + 1] = ox + p[1] / 100 * box
+      points[#points + 1] = oy + p[2] / 100 * box
+    end
+    points[#points + 1], points[#points + 2] = points[1], points[2]
+    love.graphics.setLineWidth(3 * s)
+    love.graphics.setLineJoin("bevel")
+    love.graphics.setColor(colors.paint)
+    love.graphics.line(points)
+    love.graphics.setLineWidth(1)
+  end
+  local ty = 14 * s + size + 8 * s
+  ui.text(track.title, x + 6 * s, ty, 8 * s, colors.marshal)
+  if track.metres then
+    ui.text(string.format("%.2f KM", track.metres / 1000), x, ty, 6 * s, colors.paint, "right", w - 6 * s)
+  end
+  ui.text("BY " .. (track.author or "?"), x + 6 * s, ty + 14 * s, 6 * s, colors.muted)
+  local detail = THEME_NAMES[track.theme] or ""
+  if track.added then detail = detail .. "  " .. track.added end
+  ui.text(detail, x, ty + 14 * s, 6 * s, colors.muted, "right", w - 6 * s)
+  ui.text(track.hint or "GET SAVES IT TO YOUR TRACKS", x + 6 * s, ty + 26 * s, 5 * s, colors.muted,
+    "left", w - 12 * s)
+end
+
 -- Who's in the room and what they're racing for, down the side of the lobby.
 local function drawLobby(sw, sh, boardW, s)
   local x = boardW + 14 * s
@@ -1481,9 +1791,10 @@ end
 
 local function drawButtonList(sw, sh, s, w)
   local rows = menu.buttonRows()
-  local y = 72 * s
-  -- Clear of BACK, which sits 34 up from the bottom.
-  local step = math.min(13 * s, (sh - 38 * s - y) / #rows)
+  local y = 72 * s - headerDrop(s)
+  -- Clear of BACK, which a phone has in the header instead.
+  local bottom = ui.mobile and sh - 12 * s or menu.backRowY(sh, s) - 4 * s
+  local step = math.min(13 * s, (bottom - y) / #rows)
   for i, row in ipairs(rows) do
     ui.text(row[1], 14 * s, y + (i - 1) * step, 6 * s, colors.paint)
     ui.text(row[2], 0, y + (i - 1) * step, 6 * s, colors.marshal, "right", w - 14 * s)
@@ -1491,10 +1802,11 @@ local function drawButtonList(sw, sh, s, w)
 end
 
 local function drawCredits(sw, sh, s, w)
-  ui.text("Created by VANILLAIICE", 14 * s, 76 * s, 6 * s, colors.paint)
-  ui.text("Version edited by XOROZ", 14 * s, 94 * s, 6.5 * s, colors.marshal)
-  ui.text("Font: Press Start 2P by CodeMan38", 14 * s, 114 * s, 6 * s, colors.muted, "left", w - 28 * s)
-  ui.text("Built with LOVE", 14 * s, 140 * s, 6 * s, colors.muted)
+  local drop = headerDrop(s)
+  ui.text("Created by VANILLAIICE", 14 * s, 76 * s - drop, 6 * s, colors.paint)
+  ui.text("Version edited by XOROZ", 14 * s, 94 * s - drop, 6.5 * s, colors.marshal)
+  ui.text("Font: Press Start 2P by CodeMan38", 14 * s, 114 * s - drop, 6 * s, colors.muted, "left", w - 28 * s)
+  ui.text("Built with LOVE", 14 * s, 140 * s - drop, 6 * s, colors.muted)
 end
 
 local changelogCache
@@ -1517,7 +1829,8 @@ menu.loadChangelogLines = loadChangelogLines
 
 local function drawChangelog(sw, sh, s, w)
   local lines = loadChangelogLines()
-  local x, y = 14 * s, 72 * s
+  local drop = headerDrop(s)
+  local x, y = 14 * s, 72 * s - drop
   local boxW = sw - 28 * s
   local boxH = sh - y - 44 * s
   ui.panel(x - 6 * s, y - 6 * s, boxW + 12 * s, boxH + 10 * s, 0.92)
@@ -1555,7 +1868,22 @@ end
 -- Where a screen's list sits, and how tall its rows are. Standard rows are about
 -- 4 mm tall on a phone, too close for a thumb to pick RACE over TIME TRIAL, so
 -- the main menu spreads out over the whole height there.
+--
+-- On a phone every other screen has thumb-sized rows and pages when it's long.
+-- The screens with a line of text under the list keep room for it.
+local ROOM_BELOW = { setup = true, online = true, profile = true }
+
 function menu.listLayout(screen, count, sh, s)
+  if ui.mobile and screen ~= "main" then
+    local y, rowH = 44 * s, PHONE_ROW * s
+    local bottom = sh - (ROOM_BELOW[screen] and 40 or 16) * s
+    return y, rowH, math.max(3, math.floor((bottom - y) / rowH))
+  end
+  -- The track list can be long, so it keeps its rows a thumb's height and scrolls.
+  if screen == "tracks" or screen == "mytracks" then
+    local y, rowH = 72 * s, 15 * s
+    return y, rowH, math.max(3, math.floor((sh - y - 24 * s) / rowH))
+  end
   if screen == "main" and ui.mobile then
     local y = 52 * s
     return y, (sh - y - 16 * s) / count
@@ -1563,6 +1891,11 @@ function menu.listLayout(screen, count, sh, s)
   -- On a phone, spend the spare height on taller rows to tap.
   local rowH = math.min((ui.mobile and 28 or 15) * s, (sh - 96 * s) / count)
   return screen == "main" and 62 * s or 72 * s, rowH
+end
+
+-- The lone BACK row under CREDITS and BUTTON LIST, off a phone.
+function menu.backRowY(sh, s)
+  return sh - 34 * s
 end
 
 local drawScreen
@@ -1579,9 +1912,12 @@ function drawScreen(sw, sh)
   local titles = {
     setup = MODES[settings.mode], settings = "SETTINGS", online = "ONLINE", host = "HOST A ROOM", profile = "PROFILE",
     records = "RECORDS", controls = "CONTROLS", buttons = "BUTTON LIST", changelog = "CHANGELOG", credits = "CREDITS", keys = "KEYBOARD", pad = "PAD",
+    tracks = "TRACKS ONLINE", mytracks = "MY TRACKS",
   }
   local title, titleColor = titles[menu.screen], nil
-  if menu.screen == "keys" or menu.screen == "pad" then
+  if (menu.screen == "tracks" or menu.screen == "mytracks") and note then
+    title, titleColor = note.text, colors.kerb
+  elseif menu.screen == "keys" or menu.screen == "pad" then
     title, titleColor = remapTitle(title)
     -- A click or tap anywhere lets go of a waiting row, and does nothing else.
     if capture and ui.clicked then
@@ -1592,10 +1928,20 @@ function drawScreen(sw, sh)
   -- A failure takes over the title, because the full list leaves no room below it.
   local failed = menu.screen == "online" and network.status == "error"
   local w = drawBoard(sw, sh, s, not failed and title or nil, titleColor)
-  if failed then ui.text(network.statusText(), 14 * s, 53 * s, 5 * s, colors.kerb, "left", w - 28 * s) end
+  local drop = headerDrop(s)
+  if failed then ui.text(network.statusText(), 14 * s, 53 * s - drop, 5 * s, colors.kerb, "left", w - 28 * s) end
+  if menu.screen == "tracks" and online.status == "error" then
+    ui.text(online.message, 14 * s, 64 * s - drop, 5 * s, colors.kerb, "left", w - 28 * s)
+  end
   local x = 8 * s
   local listW = w - 22 * s
   local size = 7 * s
+
+  -- A phone's BACK in the header goes the way Escape or Android's back does.
+  if headerDrop(s) > 0 then
+    local bx, by, bw, bh = menu.backButton(w, s)
+    if ui.button("header", "BACK", bx, by, bw, bh, 7 * s, s) then ui.nav.back = true end
+  end
 
   if ui.consumeBack() then
     if menu.screen == "main" then
@@ -1605,37 +1951,41 @@ function drawScreen(sw, sh)
     else
       if menu.screen == "online" then network.disconnect() end
       if menu.screen == "profile" then account.cancel() end
-      local up = { host = "online", profile = "online", buttons = "controls", keys = "controls", pad = "controls" }
+      if menu.screen == "tracks" then
+        leaveTracks()
+        return
+      end
+      local up = { host = "online", profile = "online", buttons = "controls", keys = "controls", pad = "controls",
+        mytracks = "tracks" }
       menu.go(up[menu.screen] or "main")
     end
   end
 
   local def = SCREENS[menu.screen]
   if def then
-    local rows = def.rows()
-    local y, rowH = menu.listLayout(menu.screen, #rows, sh, s)
+    local rows = menu.rows(menu.screen)
+    local y, rowH, maxRows = menu.listLayout(menu.screen, #rows, sh, s)
     local listSize = size
-    local listOpts = nil
     menu.hasSidePanel = (sw - w - 28 * s) >= 120 * s
     if menu.screen == "records" then
       local stColor = settings.syncState == "central" and colors.sectorGreen
         or (settings.syncState == "syncing" and colors.marshal or colors.muted)
-      ui.text(recordsSyncText(), 14 * s, 67 * s, 5 * s, stColor, "left", w - 28 * s)
+      ui.text(recordsSyncText(), 14 * s, 67 * s - drop, 5 * s, stColor, "left", w - 28 * s)
       if menu.recordTrack then
         local bodyH = math.max(96 * s, sh - 166 * s)
-        drawTrackLeaderboard(menu.recordTrack, 8 * s, 79 * s, w - 16 * s, bodyH, s, false)
+        drawTrackLeaderboard(menu.recordTrack, 8 * s, 79 * s - drop, w - 16 * s, bodyH, s, false)
         rowH = 16 * s
-        y = 79 * s + bodyH + 6 * s
+        y = 79 * s - drop + bodyH + 6 * s
         listSize = 6.5 * s
       else
-        y = 80 * s
+        y = 80 * s - drop
         rowH = (ui.mobile and 20 or 14) * s
         listSize = 6 * s
         local availH = math.max(rowH * 3, sh - 118 * s)
-        listOpts = { maxRows = math.max(3, math.floor(availH / rowH)) }
+        maxRows = math.max(3, math.floor(availH / rowH))
       end
     end
-    local focused = ui.list(menu.screen, rows, x, y, listW, rowH, listSize, s, listOpts)
+    local focused = ui.list(menu.screen, rows, x, y, listW, rowH, listSize, s, maxRows)
     if menu.screen == "setup" or menu.screen == "host" then
       drawSetupPreview(sw, sh, w, s)
     elseif menu.screen == "records" and menu.hasSidePanel and not menu.recordTrack then
@@ -1646,6 +1996,8 @@ function drawScreen(sw, sh)
       drawLobby(sw, sh, w, s)
     elseif menu.screen == "online" then
       drawSetupPreview(sw, sh, w, s, true)
+    elseif (menu.screen == "tracks" or menu.screen == "mytracks") and focused.track then
+      drawOnlineTrack(focused.track, sw, sh, w, s)
     end
     if menu.screen == "main" and focused.label == "QUICK RACE" and not ui.mobile then
       ui.text(quickHint(), 14 * s, sh - 34 * s, 5 * s, colors.muted, "left", w - 28 * s)
@@ -1669,11 +2021,12 @@ function drawScreen(sw, sh)
           colors.muted, "left", w - 28 * s)
       end
     end
+    local below = y + math.min(#rows, maxRows or #rows) * rowH + 8 * s
     if menu.screen == "profile" then
-      ui.text(menu.profileText(), 14 * s, y + #rows * rowH + 8 * s, 6 * s, colors.marshal, "left", w - 28 * s)
+      ui.text(menu.profileText(), 14 * s, below, 6 * s, colors.marshal, "left", w - 28 * s)
     end
     if menu.screen == "online" and not failed then
-      ui.text(network.statusText(), 14 * s, y + #rows * rowH + 8 * s, 6 * s, colors.marshal, "left", w - 28 * s)
+      ui.text(network.statusText(), 14 * s, below, 6 * s, colors.marshal, "left", w - 28 * s)
     end
   else
     local back = menu.screen == "buttons" and "controls" or "main"
@@ -1681,7 +2034,8 @@ function drawScreen(sw, sh)
     if menu.screen == "buttons" then drawButtonList(sw, sh, s, w)
     elseif menu.screen == "changelog" then drawChangelog(sw, sh, s, w)
     else drawCredits(sw, sh, s, w) end
-    ui.list(menu.screen, rows, x, sh - 34 * s, listW, 15 * s, size, s)
+    -- A phone has BACK in the header.
+    if not ui.mobile then ui.list(menu.screen, rows, x, menu.backRowY(sh, s), listW, 15 * s, size, s) end
   end
 end
 
@@ -1723,7 +2077,7 @@ function menu.startOnline()
   menu.startRace({
     entry = entry, laps = cfg.laps, time = TIME_NAMES[cfg.time] and cfg.time or "day",
     online = { slot = cfg.slot, peers = peers, startIn = network.startIn,
-      setup = setupText(settings.assists, settings.gearbox) },
+      setup = setupText(onlineHandling(), settings.gearbox) },
   })
   network.raceLoaded()
 end
@@ -1735,13 +2089,14 @@ local RESULTS_SLIDE = 0.3
 local function quitRace()
   local opts = rm.race() and rm.opts()
   local fromEditor = opts and opts.fromEditor
+  if rm.isFinished() then menu.rollQuick() end
   menu.voting = false
   network.disconnect()
   rm.stop()
   ui.nav = {}
   if fromEditor then
     state.screen = "editor"
-    require("src/editor").open()
+    require("src.editor").open()
   else
     menu.demoRunning = false
     menu.enter()
@@ -1828,13 +2183,16 @@ function menu.drawPause(sw, sh)
   -- Wide enough for "PAINT  < SUNSET ORANGE >".
   local w = (cars and 230 or 190) * s
   local x = (sw - w) / 2
-  local y = sh * 0.3
-  ui.panel(x, y, w, 28 * s + #rows * 16 * s, 0.95)
+  -- A phone's rows are a thumb's height, so its panel is taller and centred.
+  local rowH = (ui.mobile and PHONE_ROW or 16) * s
+  local h = 28 * s + #rows * rowH
+  local y = ui.mobile and math.floor((sh - h) / 2) or sh * 0.3
+  ui.panel(x, y, w, h, 0.95)
   ui.kerb(x, y, w, 3 * s, s)
   -- An online race can't stop for one player, and their car is coasting.
   ui.text(heading or (rm.isOnline() and "RACE STILL RUNNING" or "PAUSED"), x, y + 10 * s, 8 * s, colors.marshal,
     "center", w)
-  ui.list(list, rows, x + 8 * s, y + 24 * s, w - 16 * s, 16 * s, 7 * s, s)
+  ui.list(list, rows, x + 8 * s, y + 24 * s, w - 16 * s, rowH, 7 * s, s)
   if ui.consumeBack() then
     if menu.voting then menu.voting = false else rm.setPaused(false) end
   end
@@ -1848,10 +2206,31 @@ function menu.drawResults(sw, sh)
   love.graphics.setColor(0, 0, 0, 0.5 * ease)
   love.graphics.rectangle("fill", 0, 0, sw, sh)
 
+  local rows = {}
+  if not rm.isOnline() then
+    rows[1] = { label = "RACE AGAIN", activate = function() rm.restart() end }
+  elseif network.canRematch() then
+    local voted, total = network.rematchCount()
+    if network.hasVoted() then
+      rows[1] = { label = string.format("WAITING %d/%d", voted, total), disabled = true }
+    else
+      rows[1] = { label = voted > 0 and string.format("REMATCH %d/%d", voted, total) or "REMATCH",
+        activate = function() network.voteRematch() end }
+    end
+  end
+  if rm.isOnline() and network.isMatch() then
+    rows[#rows + 1] = { label = "FIND ANOTHER", activate = findAnother }
+  end
+  rows[#rows + 1] = { label = rm.opts().fromEditor and "BACK TO EDITOR" or "QUIT TO MENU", activate = quitRace }
+
   local order = race.order
   local w = math.min(sw - 16 * s, 300 * s)
-  local rowH = 13 * s
-  local h = 52 * s + rowH * #order + 40 * s
+  -- A phone's buttons are a thumb's height. If that leaves too little room, the
+  -- finishing order closes up before the buttons shrink.
+  local buttonH = ui.mobile and PHONE_ROW * s or 15 * s
+  local buttons = ui.mobile and #rows * buttonH + 6 * s or 40 * s
+  local rowH = math.min(13 * s, (sh - 8 * s - 52 * s - buttons) / #order)
+  local h = 52 * s + rowH * #order + buttons
   local x, y = (sw - w) / 2, sh + ((sh - h) / 2 - sh) * ease
   ui.panel(x, y, w, h, 0.95)
   ui.kerb(x, y, w, 3 * s, s)
@@ -1878,23 +2257,7 @@ function menu.drawResults(sw, sh)
 
   -- No buttons until it lands, so a press meant for the car can't hit one.
   if slide < 1 then return end
-  local rows = {}
-  if not rm.isOnline() then
-    rows[1] = { label = "RACE AGAIN", activate = function() rm.restart() end }
-  elseif network.canRematch() then
-    local voted, total = network.rematchCount()
-    if network.hasVoted() then
-      rows[1] = { label = string.format("WAITING %d/%d", voted, total), disabled = true }
-    else
-      rows[1] = { label = voted > 0 and string.format("REMATCH %d/%d", voted, total) or "REMATCH",
-        activate = function() network.voteRematch() end }
-    end
-  end
-  if rm.isOnline() and network.isMatch() then
-    rows[#rows + 1] = { label = "FIND ANOTHER", activate = findAnother }
-  end
-  rows[#rows + 1] = { label = rm.opts().fromEditor and "BACK TO EDITOR" or "QUIT TO MENU", activate = quitRace }
-  ui.list("results", rows, x + 8 * s, y + h - 36 * s, w - 16 * s, 15 * s, 7 * s, s)
+  ui.list("results", rows, x + 8 * s, y + h - buttons + 4 * s, w - 16 * s, buttonH, 7 * s, s)
 end
 
 return menu

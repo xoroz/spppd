@@ -1,14 +1,14 @@
 -- XOROZ 6-car garage, categories, 1-5 star stats, TOP view, ghost default ON,
 -- player name on records/ghosts, and in-game changelog.
-local h = require("tests/harness")
-local Race = require("src/sim/race")
-local Track = require("src/sim/track")
-local catalog = require("src/tracks/catalog")
-local garage = require("src/entities/garage")
-local dynamics = require("src/sim/dynamics")
-local stats = require("src/sim/car_stats")
-local AI = require("src/ai_controller")
-local config = require("src/config")
+local h = require("tests.harness")
+local Race = require("src.sim.race")
+local Track = require("src.sim.track")
+local catalog = require("src.tracks.catalog")
+local garage = require("src.entities.garage")
+local dynamics = require("src.sim.dynamics")
+local stats = require("src.sim.car_stats")
+local AI = require("src.ai_controller")
+local config = require("src.config")
 
 local DT = config.PHYSICS_DT
 
@@ -133,9 +133,9 @@ h.describe("car stats (1-5 stars)", function()
 end)
 
 h.describe("defaults, player name, ghost and changelog", function()
-  local rm = require("src/race_manager")
-  local menu = require("src/menu")
-  local settings = require("src/settings")
+  local rm = require("src.race_manager")
+  local menu = require("src.menu")
+  local settings = require("src.settings")
 
   h.it("defaults to TOP camera, ghost ON, Mugello, and saves player name on records and ghosts", function()
     love.filesystem.remove("settings.lua")
@@ -188,5 +188,16 @@ h.describe("defaults, player name, ghost and changelog", function()
     settings.submitLap("mugello", "formula_kid", 59.5, frames, "clean", { hue = 1, name = "XOROZ" })
     h.assertTrue(#settings.topGhosts("mugello") >= 1, "a ghost to pick")
     h.assertTrue(trialFromMenu(1) ~= nil, "ghost #1 loaded")
+  end)
+
+  h.it("shipped car stats match how each car drives now (else run make car-stats)", function()
+    for _, spec in ipairs(garage) do
+      local shipped = stats.shipped[spec.id]
+      h.assertTrue(shipped ~= nil, spec.name .. " has no shipped stats")
+      local now = stats.round(stats.measure(spec))
+      for _, key in ipairs(stats.ORDER) do
+        h.assertNear(shipped[key], now[key], math.abs(now[key]) * 0.005 + 1e-9, spec.name .. " " .. key)
+      end
+    end
   end)
 end)

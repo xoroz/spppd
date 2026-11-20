@@ -1,20 +1,20 @@
 -- Plays the real game through its real input handlers, with graphics on:
 -- `love . --visual flow`. Each step presses keys or clicks, then checks the
 -- screen it should have arrived at.
-local state = require("src/state")
-local rm = require("src/race_manager")
-local menu = require("src/menu")
-local settings = require("src/settings")
-local catalog = require("src/tracks/catalog")
-local ui = require("src/ui")
-local touch = require("src/touch")
-local input = require("src/input")
-local audio = require("src/audio")
-local radio = require("src/radio")
-local music = require("src/music")
-local world = require("src/world")
-local config = require("src/config")
-local garage = require("src/entities/garage")
+local state = require("src.state")
+local rm = require("src.race_manager")
+local menu = require("src.menu")
+local settings = require("src.settings")
+local catalog = require("src.tracks.catalog")
+local ui = require("src.ui")
+local touch = require("src.touch")
+local input = require("src.input")
+local audio = require("src.audio")
+local radio = require("src.radio")
+local music = require("src.music")
+local world = require("src.world")
+local config = require("src.config")
+local garage = require("src.entities.garage")
 
 local flow = {}
 
@@ -56,6 +56,14 @@ local function clearMusic()
 end
 
 -- Each entry runs after `wait` frames have passed since the previous one.
+-- Clicks the editor toolbar's row `i`, as the editor lays it out.
+function flow.clickTool(i)
+  local sw, sh = love.graphics.getDimensions()
+  local s = ui.scale(sw, sh)
+  local rowH = math.min(14 * s, (sh - 40 * s) / 18)
+  click(40 * s, 28 * s + rowH * (i - 0.5))
+end
+
 local function steps()
   local list = {}
   local function step(wait, fn) list[#list + 1] = { wait = wait, fn = fn } end
@@ -321,19 +329,37 @@ local function steps()
     expect(state.screen == "menu", "quit returns to the menu")
     expect(menu.screen == "main", "at the main menu")
     expect(music.isPlaying(), "and the music comes back")
+    settings.mode = "trial"
+    ui.focus.main = 1
+    press("return")
+  end)
+  step(3, function()
+    expect(state.screen == "race", "QUICK RACE starts a race straight away")
+    expect(rm.race().mode == "race", "a race, whatever was set up last")
+    local entry, spec = menu.quickPick()
+    expect(rm.race().track == menu.cachedTrack(entry).track, "on its own pick of track")
+    expect(rm.race().player.spec == spec, "in its own pick of car")
+    expect(#rm.race().cars == 4, "with the last grid")
+    press("escape")
+  end)
+  step(3, function() press("down") end)
+  step(2, function() press("down") end)
+  step(2, function() press("return") end)
+  step(4, function()
+    expect(menu.screen == "main", "and quits back to the menu")
     settings.mode = "race"
-    -- Mouse: click TRACK EDITOR, the sixth row
+    -- Mouse: click TRACK EDITOR, the seventh row (after ONLINE and TRACKS ONLINE)
     local s = ui.scale()
-    click(100 * s, 62 * s + 15 * s * 5.5)
+    click(100 * s, 62 * s + 15 * s * 6.5)
   end)
   step(4, function()
     expect(state.screen == "editor", "clicking TRACK EDITOR opens it")
     local sw, sh = love.graphics.getDimensions()
-    flow.nodes = #require("src/editor").currentDoc().nodes
+    flow.nodes = #require("src.editor").currentDoc().nodes
     click(sw * 0.72, sh * 0.5)
   end)
   step(3, function()
-    expect(#require("src/editor").currentDoc().nodes == flow.nodes + 1, "clicking adds a node")
+    expect(#require("src.editor").currentDoc().nodes == flow.nodes + 1, "clicking adds a node")
     love.keyboard.isDown = function(...)
       for _, k in ipairs({ ... }) do if k == "lctrl" then return true end end
       return false
@@ -342,7 +368,65 @@ local function steps()
     love.keyboard.isDown = nil
   end)
   step(3, function()
-    expect(#require("src/editor").currentDoc().nodes == flow.nodes, "ctrl+z undoes it")
+    expect(#require("src.editor").currentDoc().nodes == flow.nodes, "ctrl+z undoes it")
+    love.system.setClipboardText("")
+    -- EXPORT opens the shared folder in a file manager; not during a test.
+    flow.openURL, flow.opened = love.system.openURL, nil
+    love.system.openURL = function(url) flow.opened = url end
+    flow.exported = require("src.editor").currentDoc()
+    love.filesystem.remove("shared/" .. flow.exported.name .. ".spppd")
+    flow.clickTool(6)  -- EXPORT
+  end)
+  step(3, function()
+    local file = "shared/" .. flow.exported.name .. ".spppd"
+    flow.file = file
+    expect(love.filesystem.getInfo(file) ~= nil, "EXPORT writes a track file")
+    expect(love.filesystem.read(file):sub(1, 13) == "spppd-track 1", "of the track's plain text")
+    expect(flow.opened and flow.opened:match("/shared$"), "and opens the folder it's in")
+    flow.clickTool(7)  -- COPY CODE
+  end)
+  step(3, function()
+    expect(love.system.getClipboardText():sub(1, 12) == "SPPPD-TRACK:", "COPY CODE puts a track code on the clipboard")
+    flow.clickTool(4)  -- NEW
+  end)
+  local function sameTrack(what)
+    local doc, old = require("src.editor").currentDoc(), flow.exported
+    expect(doc ~= old and doc.title == old.title and #doc.nodes == #old.nodes, what)
+    local a, b = doc.nodes[3], old.nodes[3]
+    expect(math.abs(a.x - b.x) < 0.01 and math.abs(a.y - b.y) < 0.01 and math.abs(a.wl - b.wl) < 0.01,
+      "node for node, to the centimetre the text keeps")
+    expect(doc.dirty, "and it waits to be saved")
+  end
+  step(3, function()
+    expect(require("src.editor").currentDoc() ~= flow.exported, "NEW starts another track")
+    -- As if the file were dragged in from a file manager.
+    love.filedropped(love.filesystem.newFile(flow.file))
+  end)
+  step(3, function()
+    sameTrack("a track file dropped on the editor opens")
+    flow.clickTool(4)  -- NEW
+  end)
+  step(3, function() flow.clickTool(5) end)  -- IMPORT
+  step(3, function()
+    -- The dialog lists the shared folder's files, then PASTE FROM CLIPBOARD.
+    local files = 0
+    for _, name in ipairs(love.filesystem.getDirectoryItems("shared")) do
+      if name:match("%.spppd$") or name:match("%.txt$") then files = files + 1 end
+    end
+    ui.focus["editor-import"] = files + 1
+    press("return")
+  end)
+  step(3, function()
+    sameTrack("IMPORT reads a code from the clipboard")
+    flow.clickTool(5)  -- IMPORT
+  end)
+  step(3, function()
+    ui.focus["editor-import"] = 1  -- the newest file: the one just exported
+    press("return")
+  end)
+  step(3, function()
+    sameTrack("IMPORT opens a file from the shared folder")
+    love.system.openURL = flow.openURL
     press("t")
   end)
   step(4, function()
@@ -356,7 +440,7 @@ local function steps()
   step(4, function()
     expect(state.screen == "editor", "the test drive returns to the editor")
     expect(not music.isPlaying(), "no music in the editor")
-    expect(require("src/editor").currentDoc() ~= nil, "with the track still open")
+    expect(require("src.editor").currentDoc() ~= nil, "with the track still open")
     press("escape")
   end)
   -- An undone edit still counts as a change, so it should ask first:

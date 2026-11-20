@@ -1,6 +1,6 @@
 # Privacy policy
 
-Last updated 2026-11-07. The rules for using the server are in [TERMS.md](TERMS.md).
+Last updated 2026-11-18. The rules for using the server are in [TERMS.md](TERMS.md).
 
 This covers the official SPPPD online server at `spppd.xyz`, and the
 website at the same address, both run by vanillaiice. If you play through a server
@@ -11,8 +11,8 @@ Questions, or a request to see or delete what's held about you:
 
 ## In short
 
-- Racing offline sends nothing anywhere. Your settings, records and tracks stay on
-  your device.
+- Racing offline sends nothing anywhere, and neither does the browser version. Your
+  settings, records and tracks stay on your device.
 - Online, the server sees your IP address, because it can't send you anything without
   it. Other drivers never see it.
 - A driver name is optional. Pick one and the server keeps the name, a key for each
@@ -20,6 +20,8 @@ Questions, or a request to see or delete what's held about you:
   ID or IP address with it. There are no ads or third-party trackers.
 - The server counts players for statistics, but stores a keyed hash of each IP
   address, never the address itself, and deletes the hashes after 30 days.
+- Send in a track and the server keeps the track, the name and email you gave with
+  it, if any, and when it came. Not your IP address. The email is never shown.
 - The website counts visits and downloads with Umami, on the operator's own server.
   It sets no cookies and can't follow you to other sites.
 
@@ -39,6 +41,29 @@ Questions, or a request to see or delete what's held about you:
 | If you pick one: your driver name and number, the day you made it, the day you last raced with it, when you last renamed it, and whether it's banned | To show your name to the others in every room you race in | Until you delete the driver |
 | For each device signed in as that driver: a random key your game made, the kind of device it said it was ("Android", "Linux"), and the days it was added and last used | To check it's really you when you take a seat. Your game proves it holds the key without sending it again | Until you sign that device out, delete the driver, or sign in on more than 10 devices, when the one used least recently is dropped |
 | Your driver's recovery key | To sign another device in when you type the recovery code | Until you delete the driver |
+
+### Tracks
+
+Tracks sent in on [spppd.xyz/tracks](https://spppd.xyz/tracks/), or from the game's
+track editor with SEND ONLINE, go to the same server, over HTTPS.
+
+| What | Why | Kept |
+| --- | --- | --- |
+| The track, its title and scenery, the name you typed (optional), and when it was sent in | To check it, then show it on the tracks page for anyone to copy | Until it's rejected or deleted. A deleted track is gone from the backups within 7 days |
+| Your email, if you give one | So the operator can write to you about your track, with feedback or questions. Only the operator sees it, on the admin dashboard. It's never shown on the site, in the track or to other players, and never used for anything else | Until the track is rejected or deleted, then gone from the backups within 7 days. Ask and it's deleted sooner |
+| Your IP address | To stop one address sending more than 5 tracks an hour | In memory only, never on disk, for an hour. A restart forgets it |
+| Which admin approved or hid it, and when | To run the page | As long as the track |
+
+The game's TRACKS ONLINE screen reads the same list the page shows, from
+spppd.xyz over HTTPS (or from the server you set in SETTINGS), only when you open it. It sends nothing but the game's version;
+the proxy logs the request like any page. First the game asks the server, in one small
+UDP packet, where its track list is; the server answers and keeps nothing. The name
+and email you type for SEND ONLINE are kept in the game's settings on your device, so
+you needn't type them again.
+
+A line on the admin dashboard and in the log says a track came in, with its title and
+name, but no IP address or email. The proxy in front of the website logs the request, as it does
+every page (see below).
 
 ### Drivers
 
@@ -61,8 +86,8 @@ counts, and say nothing about anyone.
 Only the operator can see the log and the dashboard. The dashboard isn't reachable
 from the internet, and it needs an admin login.
 
-The server's database (bans, drivers and their keys, admin logins and the statistics
-below) is backed up
+The server's database (bans, drivers and their keys, tracks, admin logins and the
+statistics below) is backed up
 to rented storage, so it survives the server failing. The backup holds copies from
 the last 7 days, so anything deleted from the server is gone from the backup 7 days
 later. The key that IP hashes are made with isn't backed up, and nor are the rooms
@@ -107,6 +132,10 @@ only to see how much the game is looked at and downloaded.
 The proxy in front of the website, which also serves the operator's other sites, logs
 each request with your IP address, the page and your browser, to run the server and
 deal with abuse. That log stays on the server.
+
+The browser version at `/play/` is the same game, run in your browser. It keeps your
+settings, records and tracks in your browser's own storage for this site, on your
+device; clearing the site's data deletes them. It sends nothing while you play.
 
 The downloads come from the game's releases on GitHub, so GitHub sees your IP address
 when you download, under the [GitHub Privacy Statement](https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement).

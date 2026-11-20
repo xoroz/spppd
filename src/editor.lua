@@ -1,12 +1,18 @@
 -- The track editor screen. Click to add nodes, drag to shape the circuit, and
 -- press T to drive it. All edits go through src/editor_model.
-local ui = require("src/ui")
-local state = require("src/state")
-local colors = require("src/colors")
-local config = require("src/config")
-local catalog = require("src/tracks/catalog")
-local model = require("src/editor_model")
-local input = require("src/input")
+local ui = require("src.ui")
+local state = require("src.state")
+local colors = require("src.colors")
+local config = require("src.config")
+local catalog = require("src.tracks.catalog")
+local model = require("src.editor_model")
+local share = require("src.tracks.share")
+local web = require("src.web")
+local input = require("src.input")
+local settings = require("src.settings")
+local account = require("src.account")
+local online = require("src.tracks.online")
+local net = require("src.net_http")
 
 local editor = {}
 
@@ -146,7 +152,7 @@ local function testDrive()
     say("Fix the layout before driving it")
     return
   end
-  require("src/menu").testDrive(doc, track)
+  require("src.menu").testDrive(doc, track)
 end
 
 local function undo()
@@ -174,11 +180,138 @@ local function rename()
   end, "^[%w_ ]$", 18)
 end
 
+-- Sharing tracks: a file in the save folder's shared/ folder, which EXPORT opens so
+-- the file can be sent anywhere, or one line of text on the clipboard. A file is the
+-- track's plain wire text; IMPORT reads files, drops and the clipboard alike, all
+-- through share.import. See src/tracks/share.lua.
+local SHARED = "shared"
+local FILE_EXT = ".spppd"
+
+local function openShared()
+  love.filesystem.createDirectory(SHARED)
+  love.system.openURL("file://" .. love.filesystem.getSaveDirectory() .. "/" .. SHARED)
+end
+
+local function exportFile()
+  love.filesystem.createDirectory(SHARED)
+  local file = SHARED .. "/" .. doc.name .. FILE_EXT
+  if love.filesystem.write(file, share.text(model.definition(doc))) then
+    say("Exported " .. doc.name .. FILE_EXT .. " to the shared folder")
+    openShared()
+  else
+    say("Couldn't write the track file")
+  end
+end
+
+local function copyCode()
+  love.system.setClipboardText(share.export(model.definition(doc)))
+  say("Track code copied. Share it anywhere, or at spppd.xyz/tracks")
+end
+
+-- Sending a track to the server in the settings, where it waits for whoever runs it
+-- to approve it, then shows in TRACKS ONLINE. Without HTTPS in this LÖVE, the page
+-- at spppd.xyz/tracks takes it instead, from a pasted code.
+local sending = { state = nil, message = nil }
+
+function editor.openSend()
+  if not track then
+    say("Fix the layout before sending it")
+    return
+  end
+  if not net.available() then
+    copyCode()
+    love.system.openURL(config.TRACKS_URL)
+    return
+  end
+  local driver = account.driver()
+  if settings.trackAuthor == "" and driver then settings.trackAuthor = driver.name end
+  sending.state, sending.message = nil, nil
+  overlay = "send"
+end
+
+local function sendTrack()
+  ui.commitEditing()
+  if sending.state == "sending" then return end
+  local author = settings.trackAuthor
+  if author ~= "" and account.nameProblem(author) then
+    sending.state, sending.message = "failed", account.nameProblem(author)
+    return
+  end
+  settings.save()
+  sending.state, sending.message = "sending", nil
+  online.send(model.definition(doc), author, settings.trackContact, function(ok, message)
+    sending.state, sending.message = ok and "sent" or "failed", message
+  end)
+end
+
+local function closeSend()
+  if ui.editing then ui.commitEditing() end
+  overlay = nil
+end
+
+-- A track's text, from a file or the clipboard, opened as a new, unsaved track.
+local function importText(text, from)
+  local def, why = share.import(text)
+  if not def then
+    say("No track in " .. from .. " (" .. (why or "?") .. ")")
+    return false
+  end
+  local name = catalog.uniqueName(def.title)
+  local ok, imported = pcall(model.fromEntry, { name = name, title = def.title, def = def })
+  if not ok then
+    say("That track can't be opened")
+    return false
+  end
+  setDocument(imported)
+  doc.dirty = true
+  say("Imported " .. doc.title .. ". Save to keep it")
+  return true
+end
+
+-- Track files in the shared folder, newest first.
+local function sharedFiles()
+  local out = {}
+  for _, name in ipairs(love.filesystem.getDirectoryItems(SHARED)) do
+    local info = love.filesystem.getInfo(SHARED .. "/" .. name, "file")
+    if info and (name:sub(-#FILE_EXT) == FILE_EXT or name:sub(-4) == ".txt") then
+      out[#out + 1] = { name = name, time = info.modtime or 0 }
+    end
+  end
+  table.sort(out, function(a, b) return a.time > b.time end)
+  return out
+end
+
+-- A saved or built-in track, opened for editing.
+function editor.openEntry(entry)
+  setDocument(model.fromEntry(entry))
+  say("Opened " .. entry.title)
+end
+
+function editor.openImport()
+  overlay = "import"
+end
+
+-- A file dropped on the editor's window, from anywhere on the computer.
+function editor.filedropped(file)
+  if file:getSize() > share.MAX_CODE * 2 then
+    say("That file is too big to be a track")
+    return
+  end
+  if not file:open("r") then
+    say("Couldn't read that file")
+    return
+  end
+  local text = file:read()
+  file:close()
+  local name = file:getFilename():match("[^/\\]+$") or "the file"
+  if importText(text, name) then overlay = nil end
+end
+
 local function goBack()
   overlay = nil
   state.screen = "menu"
-  require("src/menu").demoRunning = false
-  require("src/menu").enter()
+  require("src.menu").demoRunning = false
+  require("src.menu").enter()
 end
 
 local function requestBack()
@@ -197,7 +330,7 @@ local function cycleTheme()
 end
 
 local function toolRows()
-  return {
+  local rows = {
     { label = "TEST DRIVE", value = "T", activate = testDrive },
     { label = "SAVE", value = "CTRL S", activate = saveTrack },
     { label = "OPEN", activate = function() overlay = "open" end },
@@ -205,6 +338,10 @@ local function toolRows()
         setDocument(model.new(freshName()))
         say("New track")
       end },
+    { label = "IMPORT", activate = editor.openImport, sharing = true },
+    { label = "EXPORT", activate = exportFile, sharing = true },
+    { label = "COPY CODE", activate = copyCode, sharing = true },
+    { label = "SEND ONLINE", activate = editor.openSend, sharing = true },
     { label = "NAME", activate = rename },
     { label = "SCENERY", value = function() return doc.theme:upper() end, activate = cycleTheme },
     { label = "SET START", value = "ENTER", disabled = selected == nil, activate = function()
@@ -223,6 +360,14 @@ local function toolRows()
     { label = "FIT VIEW", value = "F", activate = fitView },
     { label = "BACK", value = "ESC", activate = requestBack },
   }
+  -- In a browser the save folder is the page's storage, and love.js keeps its own
+  -- clipboard, so neither files nor codes could leave or arrive: no sharing there.
+  if web.on then
+    for i = #rows, 1, -1 do
+      if rows[i].sharing then table.remove(rows, i) end
+    end
+  end
+  return rows
 end
 
 -- Mouse -------------------------------------------------------------------------
@@ -332,7 +477,7 @@ end
 
 function editor.keypressed(key)
   if ui.editing or overlay then
-    if overlay == "open" and key == "escape" then
+    if not ui.editing and (overlay == "open" or overlay == "import" or overlay == "send") and key == "escape" then
       overlay = nil
       return
     end
@@ -490,7 +635,7 @@ local function drawOpen(sw, sh, s)
   for _, entry in ipairs(catalog.all()) do
     rows[#rows + 1] = {
       label = entry.title,
-      value = entry.builtin and "BUILT IN" or "YOURS",
+      value = entry.author or "YOURS",
       activate = function()
         setDocument(model.fromEntry(entry))
         say("Opened " .. entry.title)
@@ -499,6 +644,91 @@ local function drawOpen(sw, sh, s)
   end
   rows[#rows + 1] = { label = "CANCEL", activate = function() overlay = nil end }
   ui.list("editor-open", rows, x + 6 * s, y + 26 * s, w - 18 * s, 14 * s, 6 * s, s)
+end
+
+local function drawImport(sw, sh, s)
+  love.graphics.setColor(0, 0, 0, 0.6)
+  love.graphics.rectangle("fill", 0, 0, sw, sh)
+  local w, h = 260 * s, 230 * s
+  local x, y = (sw - w) / 2, (sh - h) / 2
+  ui.panel(x, y, w, h, 0.97)
+  ui.kerb(x, y, w, 3 * s, s)
+  ui.text("IMPORT A TRACK", x + 10 * s, y + 10 * s, 7 * s, colors.marshal)
+  ui.text("Or drop a track file on this window.", x + 10 * s, y + 22 * s, 5 * s, colors.muted)
+  local rows = {}
+  -- The newest files, as many as fit over the four rows below them.
+  local room = math.floor((h - 40 * s) / (14 * s)) - 4
+  for i, file in ipairs(sharedFiles()) do
+    if i > room then break end
+    rows[#rows + 1] = {
+      label = file.name:upper(),
+      activate = function()
+        if importText(love.filesystem.read(SHARED .. "/" .. file.name), file.name) then overlay = nil end
+      end,
+    }
+  end
+  rows[#rows + 1] = { label = "PASTE FROM CLIPBOARD", activate = function()
+      if importText(love.system.getClipboardText(), "the clipboard") then overlay = nil end
+    end }
+  -- spppd.xyz/tracks: in the game where it can fetch them (LÖVE 12), else the page.
+  rows[#rows + 1] = { label = "BROWSE TRACKS ONLINE", activate = function()
+      overlay = nil
+      require("src.menu").openTracks(true)
+    end }
+  rows[#rows + 1] = { label = "OPEN SHARED FOLDER", activate = openShared }
+  rows[#rows + 1] = { label = "CANCEL", activate = function() overlay = nil end }
+  ui.list("editor-import", rows, x + 6 * s, y + 34 * s, w - 18 * s, 14 * s, 6 * s, s)
+end
+
+-- A field in the SEND dialog: what's typed while it's being edited, else its value.
+local function sendField(key, empty)
+  return function()
+    if ui.editing and ui.editing.field == key then return ui.editing.value .. "_" end
+    local value = settings[key]
+    return value ~= "" and value or empty
+  end
+end
+
+local function editSendField(key, pattern, maxLength)
+  return function()
+    ui.commitEditing()
+    local e = ui.startEditing(settings[key], function(value)
+      settings[key] = value:match("^%s*(.-)%s*$")
+      if key == "trackAuthor" then settings[key] = settings[key]:upper() end
+      settings.save()
+    end, pattern, maxLength)
+    e.field = key
+  end
+end
+
+local function drawSend(sw, sh, s)
+  love.graphics.setColor(0, 0, 0, 0.6)
+  love.graphics.rectangle("fill", 0, 0, sw, sh)
+  local w, h = 270 * s, 136 * s
+  local x, y = (sw - w) / 2, (sh - h) / 2
+  ui.panel(x, y, w, h, 0.97)
+  ui.kerb(x, y, w, 3 * s, s)
+  local host = settings.serverAddress()
+  ui.text("SEND " .. doc.title, x + 10 * s, y + 10 * s, 7 * s, colors.marshal, "left", w - 20 * s)
+  ui.text("To " .. host .. ". It shows in TRACKS ONLINE once it's been checked.",
+    x + 10 * s, y + 22 * s, 5 * s, colors.muted, "left", w - 20 * s)
+  local busy = sending.state == "sending"
+  local rows = {
+    { label = "YOUR NAME", value = sendField("trackAuthor", "NONE"),
+      activate = editSendField("trackAuthor", "^[%w_%-]$", 12) },
+    { label = "EMAIL", value = sendField("trackContact", "OPTIONAL"),
+      activate = editSendField("trackContact", "^[%w%.%-_@+]$", 60) },
+    { label = sending.state == "sent" and "SENT" or "SEND", value = busy and "..." or nil,
+      disabled = busy or sending.state == "sent", activate = sendTrack },
+    { label = sending.state == "sent" and "DONE" or "CANCEL", activate = closeSend },
+  }
+  ui.list("editor-send", rows, x + 6 * s, y + 40 * s, w - 18 * s, 14 * s, 6 * s, s)
+  local note = "Your email only goes to whoever runs the server, to reach you about it."
+  local color = colors.muted
+  if sending.message then
+    note, color = sending.message, sending.state == "failed" and colors.kerb or colors.paint
+  end
+  ui.text(note, x + 10 * s, y + h - 26 * s, 5 * s, color, "left", w - 20 * s)
 end
 
 local function drawLeave(sw, sh, s)
@@ -538,15 +768,15 @@ function editor.draw(sw, sh)
   love.graphics.rectangle("fill", w, 0, s, sh)
   ui.text(doc.title .. (doc.dirty and " *" or ""), 8 * s, 8 * s, 6 * s, colors.marshal, "left", w - 12 * s)
   -- While a dialog is open it owns the input, not the toolbar behind it.
-  local nav, clicked = ui.nav, ui.clicked
+  local nav, clicked, press = ui.nav, ui.clicked, ui.press
   local modal = overlay ~= nil or ui.editing ~= nil
-  if modal then ui.nav, ui.clicked = {}, false end
+  if modal then ui.nav, ui.clicked, ui.press = {}, false, nil end
   local rows = toolRows()
   local rowH = math.min(14 * s, (sh - 40 * s) / #rows)
   ui.list("editor-tools", rows, 2 * s, 28 * s, w - 8 * s, rowH, 5 * s, s)
-  if modal then ui.nav, ui.clicked = nav, clicked end
+  if modal then ui.nav, ui.clicked, ui.press = nav, clicked, press end
 
-  if ui.editing then
+  if ui.editing and overlay ~= "send" then
     ui.text("NAME: " .. ui.editing.value .. "_", 0, 24 * s, 8 * s, colors.paint, "center", sw + w)
   else
     ui.text("Click adds. Drag moves. Right click deletes. Wheel zooms.",
@@ -555,6 +785,8 @@ function editor.draw(sw, sh)
   drawStats(sw, sh, s)
 
   if overlay == "open" then drawOpen(sw, sh, s)
+  elseif overlay == "import" then drawImport(sw, sh, s)
+  elseif overlay == "send" then drawSend(sw, sh, s)
   elseif overlay == "leave" then drawLeave(sw, sh, s) end
 end
 

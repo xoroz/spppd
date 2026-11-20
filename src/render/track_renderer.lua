@@ -1,11 +1,12 @@
 -- Turns a Track into meshes. The road is one mesh painted analytically in a
 -- shader, so lines and kerbs stay crisp at any camera zoom.
-local config = require("src/config")
-local textures = require("src/render/textures")
-local environment = require("src/render/environment")
-local lot = require("src/sim/lot")
-local boards = require("src/render/boards")
-local flags = require("src/flags")
+local config = require("src.config")
+local textures = require("src.render.textures")
+local environment = require("src.render.environment")
+local lot = require("src.sim.lot")
+local boards = require("src.render.boards")
+local flags = require("src.flags")
+local compat = require("src.compat")
 
 local renderer = {}
 
@@ -25,6 +26,15 @@ local function viewSize()
   return love.graphics.getDimensions()
 end
 
+-- The road's vertices: where, how far along, how far from each edge, and kerbs.
+local ROAD_ATTRIBUTES = {
+  { "VertexPosition", 0, 2 },
+  { "VertexTexCoord", 1, 2 },
+  { "Edge", 3, 2 },
+  { "KerbFlags", 4, 2 },
+  { "LineDist", 5, 1 },
+}
+
 local ROAD_SHADER = [[
   varying vec2 v_edge;
   varying float v_s;
@@ -38,9 +48,7 @@ local ROAD_SHADER = [[
   uniform highp float kerbCount;
 
   #ifdef VERTEX
-  attribute vec2 Edge;
-  attribute vec2 KerbFlags;
-  attribute float LineDist;
+  ]] .. compat.attributeDeclarations(ROAD_ATTRIBUTES) .. [[
   vec4 position(mat4 transform_projection, vec4 vertex_position) {
     v_edge = Edge;
     v_s = VertexTexCoord.x;
@@ -155,13 +163,7 @@ local GRAVEL_SHADER = [[
   #endif
 ]]
 
-local ROAD_FORMAT = {
-  { "VertexPosition", "float", 2 },
-  { "VertexTexCoord", "float", 2 },
-  { "Edge", "float", 2 },
-  { "KerbFlags", "float", 2 },
-  { "LineDist", "float", 1 },
-}
+local ROAD_FORMAT = compat.vertexFormat(ROAD_ATTRIBUTES)
 
 local function buildRoad(track)
   local samples, n = track.samples, track.count
@@ -327,7 +329,7 @@ local function scatter(track, theme, rng, boardList)
     local x = rng:random(b.minX - margin, b.maxX + margin)
     local y = rng:random(b.minY - margin, b.maxY + margin)
     -- Clumps read as woodland; a pure random spread reads as confetti.
-    local clump = love.math.noise(x / 1400, y / 1400)
+    local clump = compat.noise(x / 1400, y / 1400)
     if clump > 0.34 and outsideRoad(track, x, y, 3 * M) and not boards.near(boardList, x, y, BOARD_CLEARANCE) then
       items[#items + 1] = { x = x, y = y, spin = rng:random() * math.pi * 2, s = 0.75 + rng:random() * 0.7 }
     end
@@ -751,7 +753,7 @@ function renderer:drawGround()
 
   -- Brake reference markers (3 = 300m, 2 = 200m, 1 = 100m) painted along the track edge.
   if self.brakeMarkers and #self.brakeMarkers > 0 then
-    local ui = require("src/ui")
+    local ui = require("src.ui")
     local font = ui.font(26)
     love.graphics.setFont(font)
     local bw, bh = 3.2 * M, 3.2 * M

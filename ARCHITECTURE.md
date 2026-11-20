@@ -1,6 +1,6 @@
 # SPPPD Architecture
 
-This describes the code as it stands at version 3.5.0 (2026-11-09). It explains how
+This describes the code as it stands at version 4.0.1 (2026-11-18). It explains how
 the game works and nothing else. `ROADMAP.md` holds what's agreed but not built.
 
 Numbers in the tables were measured from the code at `c88f172` (version 2.1.0) unless
@@ -101,6 +101,8 @@ android/fdroid.yml  The F-Droid build recipe; the listing is in fastlane/
 config/deploy.yml   The website as the Kamal app, and the relay as its accessory
 bin/relay-deploy    Builds the relay and deploys it
 bin/site-deploy     Deploys the website
+bin/web-build       Builds the browser version into site/public/play/ (make web)
+web/                The browser version's page scripts: bridge.js, play.js, play.css
 .env                The official server's details and dashboard password (not in git)
 site/               The website at spppd.xyz (Astro)
 .dockerignore       Lets only what the website needs into its image
@@ -144,9 +146,11 @@ src/
 
   audio.lua               Sound synthesis and the live mix
   sound_cache.lua         WAV cache in the save folder
+  web.lua                 The browser build: window size, saving to IndexedDB
   sound_worker.lua        Thread that renders sounds on a first launch
   radio.lua               Player's own music, freestyle only
   lib/sfxr.lua            Third-party arcade effects synth (MIT)
+  lib/bit.lua             LuaJIT's bit, or arithmetic in the browser
   rumble.lua              Pad motors and phone buzzer
 
   input.lua, touch.lua    Keyboard, pad, on-screen controls
@@ -385,7 +389,7 @@ EASY is ARCADE with `grip` × 1.5 (`dynamics.EASY_GRIP`); every other value is A
 
 | | ARCADE | FULL | SPORT | SIM |
 | --- | --- | --- | --- | --- |
-| Selectable | Yes, default | No | Yes | Yes |
+| Selectable | Yes, default (EASY is this with 1.5× `grip`) | No | Yes | Yes |
 | `tc`, `abs`, `esc` | 1, 1, 0.85 | 1, 1, 1 | 0.8, 1, 0.5 | 0, 0, 0 |
 | `steer`, `caster` | 1, 1 | 1, 0.85 | 0.9, 0.75 | 0, 0.35 |
 | `grip` | 1.3 (EASY 1.95) | 1 | 1 | 1 |
@@ -399,12 +403,17 @@ EASY is ARCADE with `grip` × 1.5 (`dynamics.EASY_GRIP`); every other value is A
 | `brake`, `shift` multipliers | 1.25, 0.5 | 1, 1 | 1, 1 | 1, 1 |
 | `tow` (slipstream pull, m/s²) | 0.9 | 0 | 0 | 0 |
 
+EASY is ARCADE with `grip` times `dynamics.EASY_GRIP` (1.5, so 1.95) and nothing else
+changed. It's a hand against the computer: AI cars drive ARCADE beside it, and online it
+isn't offered and a saved EASY drives ARCADE (`rm.start`, and the hello packet says
+`arcade`).
+
 FULL exists for the AI and the demo race. AI cars use ARCADE when the player is on EASY
 or ARCADE and FULL otherwise, because arcade grip is much higher and the grid wouldn't
-match. EASY's extra grip is the player's alone. Online, each driver uses their own tier
-and gearbox: another driver's car runs no tyre model on this screen (see Remote cars), so
-their handling changes nothing for anyone else, and slipstream `tow` follows the handling
-of the car being pulled. 3.0 games still force ARCADE on themselves.
+match. Online, each driver uses their own tier and gearbox: another driver's car runs no
+tyre model on this screen (see Remote cars), so their handling changes nothing for anyone
+else, and slipstream `tow` follows the handling of the car being pulled. 3.0 games still
+force ARCADE on themselves.
 
 ### Surfaces
 
@@ -586,21 +595,27 @@ end.
 | 10 | QUAD TURBO | hyper | AWD | 1950 | 683 | 1250 | 7 | 328 | 16, 4 turbos | 190 |
 | 11 | BAJA BEAST | truck | AWD | 2900 | 466 | 880 | 8 | 415 | 8, supercharged | 210 |
 | 12 | OPEN WHEELER | formula | RWD | 920 | 502 | 470 | 8 | 337 | 6 race, 1 turbo | 120 |
-| 13 | GT RACER | coupe | RWD | 1300 | 355 | 520 | 6 | | 8 | 140 |
-| 14 | RALLY KING | hatch | AWD | 1250 | 301 | 470 | 6 | | 4, 1 turbo | 120 |
-| 15 | PROTOTYPE | hyper | RWD | 1030 | 454 | 560 | 7 | | 6 race, 2 turbos | 130 |
-| 16 | DRIFT KING | sedan | RWD | 1350 | 369 | 600 | 6 | | 6, 1 turbo | 150 |
-| 17 | TATUS | formula | RWD | 640 | 154 | 250 | 6 | 211 | 4 race, 1 turbo | 90 |
+| 13 | FORMULA KID | formula | RWD | 665 | 205 | 335 | 6 | 270 | 4 race, 1 turbo | 110 |
 
-Race setup shows each car's SPEED, ACCEL, BRAKE, HANDLING and TIRES. `src/sim/car_stats.lua`
-measures them by driving the car through the dynamics on SPORT, once per car when first
-shown: top speed, 0-100 km/h, 100-0 km/h in metres, the mean yaw rate through a 90 km/h
-slalom (HANDLING, shown out of 10) and steady cornering g at 108 km/h (TIRES). Each bar
-scores against fixed ranges in `stats.RANGES`, so adding a car never moves the others.
+*(Note: XOROZ Edition curates the active garage to 6 cars across ROAD and RACE categories — see `XOROZ.md` and `README.md`. `src/sim/car_stats.lua` measures SPEED, ACCEL, BRAKE, HANDLING and TIRES on SPORT and ships precomputed values in `src/sim/car_stats_data.lua`, rendered as 1–5 stars on the car card.)*
 
 "Gearing limit" is redline in top gear. Drag stops most cars before that, and BAJA
 BEAST well before it. `cylinders`, `turbos`, `supercharged` and `raceExhaust` change
 the sound and nothing else. `motor` does change the physics.
+
+### Car stats
+
+Race setup shows SPEED, ACCEL, BRAKE, HANDLING and TIRES under each car, as ten-step
+bars. `src/sim/car_stats.lua` measures them by driving the car through `dynamics.step`
+on SPORT as a free body: top speed and 0-100 km/h at full throttle, 100-0 km/h in
+metres, the mean yaw rate through a 90 km/h slalom, and peak sideways g in a held
+corner. Each scores 0 to 1 against fixed ranges in `stats.RANGES`, so a new car
+doesn't move the others' bars.
+
+Measuring the garage takes about half a second with the JIT off, as on a phone, so
+the numbers ship in `src/sim/car_stats_data.lua`, written by `make car-stats`. A
+test measures every car again and fails when the file no longer matches, so after
+changing a car or the SPORT tier, run `make car-stats`.
 
 ### Slipstream
 
@@ -1429,7 +1444,7 @@ Most screens show a panel down the left with a live demo race behind it.
 
 | Screen | Contents |
 | --- | --- |
-| `main` | RACE, TIME TRIAL, FREESTYLE, ONLINE, TRACK EDITOR (not on phones), SETTINGS, CONTROLS, CREDITS, QUIT |
+| `main` | QUICK RACE (the last race setup, in one press), RACE, TIME TRIAL, FREESTYLE, ONLINE, TRACK EDITOR (not on phones), SETTINGS, CONTROLS, CREDITS, QUIT |
 | `setup` | Track (THE LOT first in freestyle), PLAYERS (race and freestyle, desktop with a pad plugged in), car, paint, laps, opponents, difficulty, time, handling, radio rows in freestyle, START. With two players, car and paint give way to each driver's car, paint, handling and gearbox, and the shared handling row goes. P1's gearbox is CONTROLS > GEARBOX; P2's are `car2`, `hue2`, `assists2` and `gearbox2` |
 | `settings` | Volume, camera, zoom, gearbox, units, effects, toggles, touch and fullscreen on desktop |
 | `online` | Server, car, paint, HOST A ROOM, room code, JOIN A ROOM, with `menu.ONLINE_NOTES` beside them. Once in a room it shrinks to the code, START RACE for the host and CANCEL, with the race and its drivers beside it |
@@ -1484,6 +1499,59 @@ directly, and the document survives the trip, so the player comes back to their 
 
 Built-in tracks can be opened, and boundary tracks convert through `Track:toNodes`.
 Saving a built-in makes a `_edit` copy and never replaces it.
+
+### Sharing tracks
+
+A track goes from one player to another by hand (`src/tracks/share.lua`), as the same
+wire text online rooms send (`src/tracks/wire.lua`):
+
+- EXPORT writes it to `shared/<name>.spppd` in the save folder (`share.text`, the plain
+  text) and opens that folder, so the file can be sent anywhere.
+- COPY CODE puts it on the clipboard as one line: `SPPPD-TRACK:` and the text deflated
+  with zlib and base64'd (`share.export`). The editor exports nodes, about 10
+  characters each packed, so the built-in tracks come to 300 to 2 800 characters.
+- IMPORT lists the `.spppd` and `.txt` files in `shared/`, newest first, and can paste
+  from the clipboard. A file dropped on the editor's window is imported too
+  (`love.filedropped`; anywhere else a dropped file is a song for the radio).
+
+Everything goes through `share.import`, which takes a code or plain text, and then
+`wire.decode`, so a track from a stranger meets the same limits as one from another
+player online. A code over 40 000 characters is refused before it's inflated, which
+keeps what a hostile one can make the game unpack to about 30 MB; anything that
+inflates past `wire.MAX_BYTES` is refused after, and a dropped file over 80 KB isn't
+read. An imported track opens as a new, unsaved document, named after its title.
+
+A track can carry an `author` line, a name shaped like a driver's
+(`wire.cleanAuthor`). Built-ins are credited to SPPPD by the catalogue, a saved track
+keeps its author, and race setup and the editor's OPEN list show it. It's left out of
+`catalog.fingerprint` (`wire.encode(def, true)`), so online rooms match tracks by shape
+whoever is credited, and older games skip the line.
+
+On LÖVE 12 the game talks to the track server itself (see The track server).
+TRACKS ONLINE on the main menu, also opened by IMPORT's BROWSE TRACKS ONLINE, lists its
+tracks (`src/tracks/online.lua`), and GET saves one through `share.import` like a pasted
+code. The editor's SEND ONLINE sends the open track in, with an optional name (a
+driver name's shape, the signed-in driver's by default) and email, both remembered in
+the settings. Without lua-https (the browser build, LÖVE 11.x), BROWSE opens
+`config.TRACKS_URL` instead, and SEND copies the code and opens the same page.
+
+Requests run on a thread (`src/https_worker.lua`, driven by `src/net_http.lua`), as
+lua-https blocks until the whole reply is in. The track server is on whichever server
+SETTINGS names, but SERVER is the relay's UDP address, and the web side may be
+elsewhere: on spppd.xyz it's HTTPS on 443 through Caddy, on a relay run at home plain
+HTTP on its `-status` port. So the game first asks the relay, on the same thread:
+`event|web|` padded to 160 bytes, answered `event|web|ADDRESS` (`server/web.go`). The
+address comes from `-web`, or is `http://:PORT` for the `-status` port, where no host
+means the host the game reached the relay at; empty means no track server. A relay that
+doesn't answer in three tries of 0.4 s is from before 4.0, and the game uses
+`https://HOST`. An answer is kept per SERVER for the session.
+
+Plain HTTP is fine for reading the list, which is public. Sending goes over it only to
+a local address (`net.isLocal`: loopback, private, link-local, 100.64/10 and `.local`,
+`.lan`, `.home.arpa` names), since the email would cross the internet readable. For
+plain HTTP to work at all, the Android manifest sets `usesCleartextTraffic`
+(`android/noRecord/AndroidManifest.xml`) and the macOS app `NSAllowsLocalNetworking`
+(`bin/mac-plist`).
 
 ### Catalogue
 
@@ -2159,6 +2227,44 @@ on `:8081` on the kamal network only, and the website's Caddy passes `/api/statu
 `spppd-relay:8081`, so a stopped relay shows as down. In `make site-dev`, Vite passes
 it to `127.0.0.1:8081` (`SPPPD_STATUS` to change that).
 
+### The track server
+
+`spppd.xyz/tracks/` holds tracks players made, so tracks that shouldn't ship with the
+game, such as lookalikes of real circuits, can still be had. With `-tracks` (off unless
+asked for, like `-analytics`; it needs `-status`) the relay serves it on the `-status`
+address (`server/tracks.go`) and the dashboard shows its Tracks section; without it
+`/api/tracks` is a 404. The official server runs with it, and Caddy passes `/api/tracks*` to it,
+with bodies capped at 128 KB:
+
+- `GET /api/tracks`: the live tracks as JSON, each with its code, an outline of up to
+  about 80 points in a 100 by 100 box, length and theme. Made once and kept 30 s, or
+  until a dashboard user changes a track.
+- `GET /api/tracks/ID.spppd`: a live track's file, to download.
+- `POST /api/tracks`: `{"track": CODE_OR_TEXT, "author": NAME, "contact": EMAIL}`,
+  the last two optional. The contact is one plain address (`cleanContact`), shown only
+  on the dashboard as a mail link. The track is held to
+  `wire.decode`'s limits in Go (`CheckTrack`), and only the lines the game reads are
+  kept, title and theme first. `TestTrackLimitsMatchTheGame` reads the Lua constants,
+  so the two can't drift apart, and `tests/test_editor.lua` imports a code the relay
+  made (`server/testdata/oasis.code`). The author is optional and checked like a
+  driver name; an `author` line in the text is dropped, and the list's code and the
+  file put the sender's back after the title (`Track.Wire`), so the same track sent
+  under two names is still one track. Then it waits, `pending`, in the `tracks` table of `relay.db`.
+
+Nobody needs an account. Uploads are limited to 5 an hour per address, in memory only,
+and 100 waiting in all; the same text twice is refused by its hash. The address is
+`X-Real-IP`, which Caddy sets to `{client_ip}` (kamal-proxy is a trusted proxy), and
+which the relay only believes from a loopback or private peer.
+
+The dashboard's Tracks section shows each waiting track's outline, facts and code, to
+paste into the game and try, with APPROVE and REJECT (deletes it). Live tracks can be
+hidden or deleted. RENAME, on any track, asks for a new title, cleans it as a
+sent-in title is, and rewrites the title line of the stored text and its hash, so a
+resend under the new name is still a duplicate. The game knows tracks it has by a
+hash of their text, title included, so a renamed live track looks new to anyone who
+got it before. Each decision is a line of activity. Numbers come from
+AUTOINCREMENT, so a deleted track's download link never points at another track.
+
 ### The website
 
 `site/` is an Astro site, served at `https://spppd.xyz` from the same name
@@ -2169,8 +2275,8 @@ does the TLS. Caddy logs no requests.
 
 It has no copy of anything the repository already says. The changelog page is
 `CHANGELOG.md` split at each `## version (date)` heading, leaving out `Unreleased`, and
-the privacy and terms pages are `PRIVACY.md` and `TERMS.md`. The status page is the one
-page with data from outside the build: see Server status. Their links to each other
+the privacy and terms pages are `PRIVACY.md` and `TERMS.md`. The status and tracks pages are the
+pages with data from outside the build: see Server status and The track server. Their links to each other
 become links to the pages (`siteLinks` in `site/src/lib/repo.ts`). The version comes
 from `src/config.lua`. The downloads link this version's GitHub release, so the site's server
 doesn't carry them. `make site-downloads` writes their sizes from `dist/` into
@@ -2221,9 +2327,10 @@ positions, hence "new cars go on the end".
 | `make relay-linux` | `dist/relay-linux`, static, for the server |
 | `make deploy-relay` | Tests the relay, deploys it, then checks it answers. See [Deploying](#deploying) |
 | `make check-relay` | Checks the official relay answers, without showing in its stats |
-| `make site` | The website in `site/dist`, with this version's builds to download. See [The website](#the-website) |
+| `make web` | The browser version in `site/public/play/`, for the site's `/play/`. See [The browser version](#the-browser-version) |
+| `make site` | The website in `site/dist`, with the browser version and this version's builds to download. See [The website](#the-website) |
 | `make deploy-site` | Builds the website, then deploys it |
-| `make zip` | `dist/spppd-3.5.0.love`. Tests stay out |
+| `make zip` | `dist/spppd-4.0.1.love`. Tests stay out |
 | `make win64 win32` | Windows zips. To this project, these are what a release means |
 | `make apk` | APK signed with a local key, application id `xyz.spppd` |
 | `make aab` | App Bundle for Google Play, signed with the upload key (`UPLOAD_KEYSTORE`) |
@@ -2257,23 +2364,45 @@ minor * 100 + patch; a test checks the two agree. F-Droid builds each new `v*` t
 from source and offers it only if the code went up, and shows
 `fastlane/metadata/android/en-US/changelogs/<VERSION_CODE>.txt` as its notes. There is no CI.
 
-### The browser build
+### The browser version
 
-`build.sh` patches the web copy of `conf.lua` to LÖVE 11.4 and injects
-`web/bridge.js` before `game.js`. love.js runs PUC Lua 5.1 on WebGL 1, so:
+`make web` (`bin/web-build`) and `texngo/build-web.sh` (`./build.sh`) build the game with
+love.js 11.4.1 (LÖVE 11.4 on plain Lua 5.1 in WebAssembly, compatibility mode: no threads,
+no cross-origin isolation headers). The web copy's `conf.lua` asks for 11.4 and no high-DPI
+window. What the browser lacks, and what stands in:
 
-- There's no `bit` library; `sfxr.lua` falls back to arithmetic for the two calls it uses.
-- Nothing yields across a `pcall`; `audio.load` runs its body in a coroutine of its
-  own and passes each yield on.
-- A texture whose sides aren't powers of two can't have mipmaps
-  (`textures.canMipmap`).
-- There are no sockets: ONLINE is hidden and `network.connect` fails politely.
+| Missing | Instead |
+| --- | --- |
+| LuaJIT's `bit` | `src/lib/bit.lua`, arithmetic, for whole numbers below 2^32 |
+| Yielding across `pcall` | `audio.load` runs its body in a coroutine of its own (`pcallYielding`) |
+| Threads | No threaded first-launch render; the build can ship the sound cache instead |
+| Sockets | `account` and `network_manager` load without them; ONLINE isn't in the menu |
+| Mipmaps on textures that aren't a power of two (WebGL 1) | `textures.canMipmap` leaves them off there |
+| A window | `src/web.lua` sizes the game to the browser window |
+| A save folder or clipboard the player can reach | The editor hides IMPORT, EXPORT and COPY CODE |
 
-`src/web.lua` (`web.on`) prints `SPPPD_WEB|<save dir>|hello`, and the bridge writes
-`viewport.txt` (`width height phone`) into the save folder; the window follows it, and
-`phone` turns on `ui.mobile` and the touch controls. QUIT is hidden in a browser and Auto
-Gas defaults off there. `update.sh` hands the server's cron to `~/scripts/app-update.sh`
-with `BUILD=./build.sh`, as game-race does.
+`web/bridge.js` talks to the game through lines the game prints that start
+`SPPPD_WEB|`. It writes the browser window's size, and whether it's a touch screen,
+into the save folder as `viewport.txt`, and `web.lua` follows it: a touch screen gets
+the phone's menus and touch controls. love.js keeps the save folder in IndexedDB but
+copies it there only on `beforeunload`, which a phone often never sends, so `web.lua`
+wraps `love.filesystem.write`, `append` and `remove`, and a second after the last
+write asks the page to copy it; the page also does when it's hidden. `bin/web-build`
+exports `FS.syncfs` from `love.js` for that, a one-line patch it checks.
+
+Without threads, rendering the sounds took 11 s on a desktop, and 39 s and 56 s with
+Chrome's CPU slowed four and six times, so the build renders them with
+`love . --sound-cache` (`audio.buildCache`, its own save folder) and packs the
+finished cache into the game. LÖVE reads a file from the game when the save folder
+hasn't got it, so the browser finds a complete cache: 4, 10 and 14 s to the menu. It
+adds 4.8 MB; the whole page is about 7 MB over the wire, the WebAssembly compressed.
+
+The page is `site/src/pages/play.astro`, with `web/play.js` (love.js's start-up,
+which its own page does in inline script) and `web/play.css`. The site's
+Content-Security-Policy allows no inline script and no WebAssembly, so Caddy gives
+`/play/` its own, with `'wasm-unsafe-eval'`, and `Cache-Control: no-cache`, because
+love.js's file names don't change between versions. The heap starts at 64 MB and grows;
+a race never took it past that.
 
 ### Tests
 

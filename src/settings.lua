@@ -52,6 +52,9 @@ local settings = {
 
   server = SERVER,
   scoreUrl = "https://apps.texngo.it/spppd/api/records",
+  -- Who sent a track in from the editor, and how to reach them (optional).
+  trackAuthor = "",
+  trackContact = "",
 }
 
 local records = {}
@@ -535,11 +538,11 @@ function settings.load()
     settings.camera = "top"
   end
   -- Migrate removed fictional tracks to Mugello.
-  local okCat, catalog = pcall(require, "src/tracks/catalog")
+  local okCat, catalog = pcall(require, "src.tracks.catalog")
   if okCat and catalog and not catalog.find(settings.track) then
     settings.track = "mugello"
   end
-  local okGar, garage = pcall(require, "src/entities/garage")
+  local okGar, garage = pcall(require, "src.entities.garage")
   if okGar and garage and #garage > 0 then
     settings.car = math.max(1, math.min(#garage, math.floor(tonumber(settings.car) or 1)))
     settings.car2 = math.max(1, math.min(#garage, math.floor(tonumber(settings.car2) or 2)))

@@ -9,9 +9,9 @@
 -- blow-off, crashes) are modelled here instead, out of the same parts: stepped noise,
 -- simple filters, slides and short envelopes.
 -- SOUND.md is the style guide: the levels and conventions a new sound has to meet.
-local sfxr = require("src/lib/sfxr")
-local cache = require("src/sound_cache")
-local garage = require("src/entities/garage")
+local sfxr = require("src.lib.sfxr")
+local cache = require("src.sound_cache")
+local garage = require("src.entities.garage")
 local unpack = unpack or table.unpack
 
 local audio = { ready = false, spool = 0, duck = 0 }
@@ -1070,8 +1070,8 @@ local function engineLoops(voice)
 end
 
 -- pcall that lets f yield to whoever resumed the caller. LuaJIT yields across a
--- pcall; the browser build's Lua 5.1 can't, so f runs in a coroutine of its own
--- and each of its yields is passed on.
+-- pcall; the browser build's Lua 5.1 can't, so there f runs in a coroutine of its
+-- own and each of its yields is passed on.
 local function pcallYielding(f)
   if jit or not coroutine.running() then return pcall(f) end
   local co = coroutine.create(f)
@@ -1091,7 +1091,9 @@ local MAX_WORKERS = 6
 -- done, letting the splash draw meanwhile. A thread that fails just leaves its
 -- sounds out, and get renders those here as before.
 function audio.prerender(workers)
-  if love._os == "Web" or not (cache.folder and love.thread and love.system) then return 0 end
+  -- The browser build runs in compatibility mode, without threads.
+  if love._os == "Web" or (love.system and love.system.getOS() == "Web") then return 0 end
+  if not (cache.folder and love.thread and love.system) then return 0 end
   workers = workers or math.max(1, math.min(MAX_WORKERS, love.system.getProcessorCount() - 1))
   local queue, done = love.thread.newChannel(), love.thread.newChannel()
   for _, job in ipairs(audio.jobs()) do queue:push(job.name) end
@@ -1164,6 +1166,17 @@ function audio.load()
     audio.ready = true
   end)
   if not ok then print("audio disabled: " .. tostring(err)) end
+end
+
+-- Renders every sound into the cache folder and marks it complete, playing
+-- nothing. `love . --sound-cache` runs it for the browser build, which ships the
+-- folder: the browser has no threads, so a first visit would otherwise spend most
+-- of a minute on a phone rendering them. Returns the folder, or nil.
+function audio.buildCache()
+  cache.open({ "src/audio.lua", "src/lib/sfxr.lua" })
+  for _, job in ipairs(audio.jobs()) do cache.get(job.name, job.render, unpack(job.args)) end
+  cache.finish()
+  return cache.complete and cache.folder or nil
 end
 
 function audio.setVolume(v)

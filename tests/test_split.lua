@@ -1,16 +1,16 @@
 -- Two drivers at one screen: the race with two of them in it, each driver's own
 -- hands, and each pad's own motors.
-local h = require("tests/harness")
-local Race = require("src/sim/race")
-local AI = require("src/ai_controller")
-local Track = require("src/sim/track")
-local catalog = require("src/tracks/catalog")
-local garage = require("src/entities/garage")
-local config = require("src/config")
-local input = require("src/input")
-local rumble = require("src/rumble")
-local settings = require("src/settings")
-local dynamics = require("src/sim/dynamics")
+local h = require("tests.harness")
+local Race = require("src.sim.race")
+local AI = require("src.ai_controller")
+local Track = require("src.sim.track")
+local catalog = require("src.tracks.catalog")
+local garage = require("src.entities.garage")
+local config = require("src.config")
+local input = require("src.input")
+local rumble = require("src.rumble")
+local settings = require("src.settings")
+local dynamics = require("src.sim.dynamics")
 
 local DT = config.PHYSICS_DT
 local M = config.METER
@@ -159,7 +159,7 @@ end)
 
 h.describe("two-player ghost records", function()
   h.it("saves both players' best laps and ghosts after a 2-player race ends, and supports loading a ghost", function()
-    local rm = require("src/race_manager")
+    local rm = require("src.race_manager")
     love.filesystem.remove("records.lua")
     settings.load()
     local entry = catalog.find("mugello")

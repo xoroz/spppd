@@ -1,31 +1,31 @@
 -- The running race as the player sees it: owns the session, drives the
 -- simulation at a fixed rate and draws each frame.
-local config = require("src/config")
-local Race = require("src/sim/race")
-local Track = require("src/sim/track")
-local dynamics = require("src/sim/dynamics")
-local world = require("src/world")
-local input = require("src/input")
-local touch = require("src/touch")
-local settings = require("src/settings")
-local vfx = require("src/vfx_manager")
-local skids = require("src/skid_manager")
-local post = require("src/render/post")
-local environment = require("src/render/environment")
-local track_renderer = require("src/render/track_renderer")
-local car_view = require("src/render/car_view")
-local sprites = require("src/render/car_sprites")
-local hud = require("src/hud")
-local ui = require("src/ui")
-local minimap = require("src/minimap")
-local audio = require("src/audio")
-local radio = require("src/radio")
-local colors = require("src/colors")
-local network = require("src/network_manager")
-local account = require("src/account")
-local rumble = require("src/rumble")
-local cheats = require("src/cheats")
-local garage = require("src/entities/garage")
+local config = require("src.config")
+local Race = require("src.sim.race")
+local Track = require("src.sim.track")
+local dynamics = require("src.sim.dynamics")
+local world = require("src.world")
+local input = require("src.input")
+local touch = require("src.touch")
+local settings = require("src.settings")
+local vfx = require("src.vfx_manager")
+local skids = require("src.skid_manager")
+local post = require("src.render.post")
+local environment = require("src.render.environment")
+local track_renderer = require("src.render.track_renderer")
+local car_view = require("src.render.car_view")
+local sprites = require("src.render.car_sprites")
+local hud = require("src.hud")
+local ui = require("src.ui")
+local minimap = require("src.minimap")
+local audio = require("src.audio")
+local radio = require("src.radio")
+local colors = require("src.colors")
+local network = require("src.network_manager")
+local account = require("src.account")
+local rumble = require("src.rumble")
+local cheats = require("src.cheats")
+local garage = require("src.entities.garage")
 
 local rm = {}
 
@@ -212,9 +212,12 @@ function rm.start(opts)
     readers = opts.readers or { input.splitReaders() }
     if readers[1] and readers[2] then player2 = opts.player2 end
   end
+  local assist = opts.assist or settings.assists
+  -- EASY is a hand against the computer. Online it drives ARCADE, as everyone does.
+  if opts.online and assist == "easy" then assist = "arcade" end
   local race = Race.new({
     mode = opts.mode, track = track, laps = opts.laps, opponents = opts.opponents,
-    spec = opts.spec, color = opts.color, assist = opts.assist or settings.assists,
+    spec = opts.spec, color = opts.color, assist = assist,
     difficulty = opts.difficulty, seed = opts.seed, startDelay = opts.startDelay,
     online = opts.online,
     rules = opts.rules,
@@ -277,7 +280,7 @@ function rm.start(opts)
   audio.split(session.split)
 
   if opts.demo then
-    local AI = require("src/ai_controller")
+    local AI = require("src.ai_controller")
     race.player.driver = AI.new(track, race.player, { skill = 0.95 })
     race.player.name = "VOSS"
   elseif session.split then
@@ -351,10 +354,11 @@ end
 function rm.setPaused(paused)
   if not session then return end
   session.paused = paused
+  require("src.ui").cancelPress()
   if paused then
     audio.silence()
     rumble.stop()
-    require("src/ui").focus.pause = 1
+    require("src.ui").focus.pause = 1
     touch.reset()
   end
   radio.pause(paused)

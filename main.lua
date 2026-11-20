@@ -1,12 +1,28 @@
 -- `love . --test [filter]` runs the headless test suite instead of the game.
 -- `love . --perf` measures a race instead.
 -- `love . --sounds <old|new> <folder>` writes every sound out as a WAV.
+
+-- LÖVE 11 ran Android with LuaJIT's compiler off, and 12 turns it on. On the
+-- Galaxy A04 it costs frames there (high effects 54-57 fps on, 57-59 off), so it
+-- stays off as before.
+if jit and love._os == "Android" then jit.off() end
+
 for i, a in ipairs(arg or {}) do
   if a == "--sounds" then
     local which, folder = arg[i + 1], arg[i + 2]
     function love.load()
-      require("tests/sound/dump")(which, folder)
+      require("tests.sound.dump")(which, folder)
       love.event.quit(0)
+    end
+    return
+  end
+  -- `love . --sound-cache` fills the sound cache and prints where it is, for
+  -- bin/web-build.
+  if a == "--sound-cache" then
+    function love.load()
+      local folder = require("src.audio").buildCache()
+      if folder then print(love.filesystem.getSaveDirectory() .. "/" .. folder) end
+      love.event.quit(folder and 0 or 1)
     end
     return
   end
@@ -16,31 +32,32 @@ for i, a in ipairs(arg or {}) do
       for i, v in ipairs(args) do
         if v == "--test" then filter = args[i + 1] end
       end
-      local ok = require("tests/run")(filter)
+      local ok = require("tests.run")(filter)
       love.event.quit(ok and 0 or 1)
     end
     return
   end
 end
 
-local state = require("src/state")
-local settings = require("src/settings")
-local input = require("src/input")
-local touch = require("src/touch")
-local ui = require("src/ui")
-local splash = require("src/splash")
-local menu = require("src/menu")
-local rm = require("src/race_manager")
-local editor = require("src/editor")
-local audio = require("src/audio")
-local radio = require("src/radio")
-local music = require("src/music")
-local post = require("src/render/post")
-local textures = require("src/render/textures")
-local catalog = require("src/tracks/catalog")
-local network = require("src/network_manager")
-local cheats = require("src/cheats")
-local web = require("src/web")
+local state = require("src.state")
+local settings = require("src.settings")
+local input = require("src.input")
+local touch = require("src.touch")
+local ui = require("src.ui")
+local splash = require("src.splash")
+local menu = require("src.menu")
+local rm = require("src.race_manager")
+local editor = require("src.editor")
+local audio = require("src.audio")
+local radio = require("src.radio")
+local music = require("src.music")
+local post = require("src.render.post")
+local textures = require("src.render.textures")
+local catalog = require("src.tracks.catalog")
+local network = require("src.network_manager")
+local cheats = require("src.cheats")
+local web = require("src.web")
+local net = require("src.net_http")
 
 -- Slow phones take seconds over this, so it runs a step at a time between
 -- frames, with the splash on screen.
@@ -65,8 +82,13 @@ end
 function love.load(args)
   love.graphics.setDefaultFilter("linear", "linear")
   love.keyboard.setKeyRepeat(false)
+  -- Typed text, on all the time where there's a real keyboard: names, codes, the
+  -- server, and cheat codes typed blind. LÖVE 11 starts with it on, 12 (SDL3) with
+  -- it off. A phone turns it on only while editing (ui.startEditing), as it brings
+  -- up the on-screen keyboard.
+  if not love.keyboard.hasScreenKeyboard() then love.keyboard.setTextInput(true) end
   settings.load()
-  require("src/account").load()
+  require("src.account").load()
   if not input.setBindings(settings.keys, settings.padButtons) then
     settings.keys, settings.padButtons = input.keyChanges(), input.buttonChanges()
   end
@@ -78,7 +100,7 @@ function love.load(args)
     if a == "--perf" then
       while loading do stepLoading() end
       rm.keepRunningUnfocused = true
-      require("tests/perf").start()
+      require("tests.perf").start()
       return
     end
     if a == "--visual" then
@@ -86,19 +108,19 @@ function love.load(args)
       rm.keepRunningUnfocused = true
       for _, b in ipairs(args) do
         if b == "flow" then
-          require("tests/flow").start()
+          require("tests.flow").start()
           return
         end
         if b == "online" then
-          require("tests/flow_online").start()
+          require("tests.flow_online").start()
           return
         end
         if b == "listen" then
-          require("tests/sound/listen").start()
+          require("tests.sound.listen").start()
           return
         end
       end
-      require("tests/visual").start(args)
+      require("tests.visual").start(args)
       return
     end
   end
@@ -109,8 +131,17 @@ function love.quit()
   network.disconnect()
 end
 
+-- On a phone, the sounds that were playing when the game went to the background.
+-- LÖVE 11 stopped everything there by itself; LÖVE 12 plays on.
+local away
+local PHONE = { Android = true, iOS = true }
+
 function love.update(dt)
+  -- In the background on a phone nothing runs, as on LÖVE 11, so the music can't
+  -- start itself again.
+  if away then return end
   web.update(dt)
+  net.update()
   -- Menus only. It renders ahead anywhere but a race, where frames matter.
   if not loading then
     music.update(dt, state.screen == "menu" and settings.music, settings.music and state.screen ~= "race")
@@ -230,6 +261,7 @@ function love.mousepressed(x, y, button, istouch)
 end
 
 function love.mousereleased(x, y, button, istouch)
+  ui.mousereleased(x, y, button)
   if state.screen == "editor" then editor.mousereleased(x, y, button) end
   if button == 1 and not istouch then touch.released("mouse") end
 end
@@ -242,6 +274,7 @@ end
 
 function love.wheelmoved(x, y)
   if state.screen == "editor" then editor.wheelmoved(x, y) end
+  if state.screen == "menu" then ui.wheelmoved(x, y) end
 end
 
 function love.gamepadpressed(joystick, button)
@@ -275,10 +308,19 @@ function love.joystickremoved(joystick)
 end
 
 function love.filedropped(file)
-  radio.addFile(file)
+  -- In the editor a dropped file is a track to import; elsewhere, a song.
+  if state.screen == "editor" then editor.filedropped(file) else radio.addFile(file) end
 end
 
 function love.focus(focused)
+  if PHONE[love.system.getOS()] then
+    if not focused and not away then
+      away = love.audio.pause()
+    elseif focused and away then
+      love.audio.play(away)
+      away = nil
+    end
+  end
   -- Coming back from a file manager: there may be new songs or tracks.
   if focused then
     radio.scan()

@@ -1,8 +1,8 @@
-local h = require("tests/harness")
-local touch = require("src/touch")
-local input = require("src/input")
-local settings = require("src/settings")
-local ui = require("src/ui")
+local h = require("tests.harness")
+local touch = require("src.touch")
+local input = require("src.input")
+local settings = require("src.settings")
+local ui = require("src.ui")
 
 local SW, SH = 1280, 720
 -- The middle of the stick's box, set by fresh().
@@ -61,7 +61,7 @@ h.describe("touch", function()
   end)
 
   h.it("a phone's main menu is big enough for a thumb", function()
-    local menu = require("src/menu")
+    local menu = require("src.menu")
     local mobile = ui.mobile
     ui.mobile = true
     -- What LÖVE reports on a 1600x720 phone, in its density-independent units.
@@ -138,8 +138,8 @@ h.describe("touch", function()
   end)
 
   h.it("steering feel winds the arrows on slower or faster, and leaves keys alone", function()
-    local dynamics = require("src/sim/dynamics")
-    local garage = require("src/entities/garage")
+    local dynamics = require("src.sim.dynamics")
+    local garage = require("src.entities.garage")
     local function windOn(feel)
       fresh()
       settings.touchSteer = "buttons"
@@ -261,15 +261,37 @@ h.describe("touch", function()
     h.assertTrue(not apply().boost, "and only once")
   end)
 
-  h.it("pause and reset press once each", function()
+  h.it("pause presses once, as it's touched", function()
     fresh()
-    for _, action in ipairs({ "pause", "respawn" }) do
-      local b = button(action)
-      touch.pressed(1, b.x, b.y, SW, SH)
-      touch.released(1)
-      h.assertTrue(input.consume(action), action)
-      h.assertTrue(not input.consume(action), action .. " once")
-    end
+    local b = button("pause")
+    touch.pressed(1, b.x, b.y, SW, SH)
+    h.assertTrue(input.consume("pause"), "pause")
+    touch.released(1)
+    h.assertTrue(not input.consume("pause"), "pause once")
+  end)
+
+  h.it("reset waits for the thumb to lift, and presses once", function()
+    fresh()
+    local b = button("respawn")
+    touch.pressed(1, b.x, b.y, SW, SH)
+    h.assertTrue(not input.consume("respawn"), "not while held")
+    touch.released(1)
+    h.assertTrue(input.consume("respawn"), "on the lift")
+    h.assertTrue(not input.consume("respawn"), "once")
+  end)
+
+  h.it("sliding off reset lets it off, and sliding back on puts it back", function()
+    fresh()
+    local b = button("respawn")
+    touch.pressed(1, b.x, b.y, SW, SH)
+    touch.moved(1, b.x - b.r * 3, b.y + b.r * 3)
+    touch.released(1)
+    h.assertTrue(not input.consume("respawn"), "slid off")
+    touch.pressed(1, b.x, b.y, SW, SH)
+    touch.moved(1, b.x - b.r * 3, b.y + b.r * 3)
+    touch.moved(1, b.x + 1, b.y)
+    touch.released(1)
+    h.assertTrue(input.consume("respawn"), "slid back on")
   end)
 
   h.it("a thumb near a button still hits it, and the nearest one wins", function()
@@ -341,7 +363,7 @@ h.describe("touch", function()
   -- The minimap moves up under the top row for touch, and the race tower holds
   -- every car there can be offline.
   h.it("buttons stay off the minimap and the race tower", function()
-    local config = require("src/config")
+    local config = require("src.config")
     eachLayout(function(layout, sw, _, name)
       local s = layout.s
       local towerH = 11 * s * (config.OPPONENTS_MAX + 2)

@@ -4,7 +4,7 @@
 --
 -- Body frame: +x forward, +y to the driver's right, +yaw clockwise on screen.
 -- Wheels: 1 front-left, 2 front-right, 3 rear-left, 4 rear-right.
-local config = require("src/config")
+local config = require("src.config")
 
 local dynamics = {}
 
@@ -131,7 +131,8 @@ local ARCADE = {
   drift = 1, offroad = 0.6, brake = 1.25, shift = 0.5, tow = 0.9,
 }
 
--- EASY is ARCADE with half as much grip again, on every car.
+-- EASY is ARCADE with half as much grip again, on every car. The AI drives ARCADE
+-- beside it, and online it is ARCADE, so it never races anyone else.
 dynamics.EASY_GRIP = 1.5
 local EASY = {}
 for k, v in pairs(ARCADE) do EASY[k] = v end

@@ -20,7 +20,7 @@ const posts = (await publishedPosts()).slice(0, 3);
 
 // The standings board in the game's corner, holding the game's numbers instead.
 const board = [
-  { label: 'Cars', value: '12' },
+  { label: 'Cars', value: '13' },
   { label: 'Tracks', value: '10' },
   { label: 'Times of day', value: '4' },
   { label: 'Online', value: '2–4' },
@@ -109,6 +109,7 @@ const notes = [
           <a class="button drive" href={apk.href} data-umami-event="download" data-umami-event-file="apk">
             Android <small>{megabytes(apk.bytes)}</small>
           </a>
+          <a class="button" href="/play/" data-umami-event="play">Play in your browser</a>
         </div>
         <p class="version muted">
           Version {version}. <a href="#download">Other downloads</a> · <a href={site.github}>GitHub</a> ·

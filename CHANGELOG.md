@@ -1,25 +1,146 @@
 # Changelog
 
-## 3.6.0 (2026-11-20) — Version edited by XOROZ
+## 4.0.1 (2026-11-20) — Version edited by XOROZ
 
-### Cars & Categories
-- Curated garage down to **6 cars** across two distinct classes (**ROAD** and **RACE**):
-  - **ROAD**: `HOT HATCH` (FWD), `ROCKET` (RWD), and the new `PANAME` (AWD — Porsche Panamera GTS 976: 4.0L twin-turbo V8, 500 PS, 2104 kg, 0-100 km/h in 3.8 s, 302 km/h).
-  - **RACE**: `FORMULA KID` (Tatuus T-318 F3 — soft slick tyres, huge grip), `PURSA GT3` (AWD Porsche 911 GT3 RS 992 specs), and `FORMULA 1 1988` (McLaren MP4/4 — 540 kg, 685 hp twin-turbo V6, extreme downforce).
-- Race cars are substantially faster than Road cars and do not mix categories by default (`MIX CLASSES` toggle in Race setup).
-- Redesigned car cards to show **Category**, **Max Speed**, drivetrain, and clean **1 to 5 star** ratings for Speed, Accel, Brake, Handling, and Tires.
+### Merged Upstream v3.6.0–v4.0.1 (vanillaiice/spppd)
+- Synced upstream engine & feature updates through **v4.0.1** while preserving all XOROZ Edition cars, tracks, and defaults (see `XOROZ.md`):
+  - **Tracks Online & My Tracks**: browse/download community tracks from `spppd.xyz/tracks/` directly in-game (LÖVE 12) and manage saved tracks.
+  - **Thumb-friendly Mobile Menus**: fire-on-lift rows, `<` / `>` arrow buttons, `MORE` paging, pinned `START`, header `BACK`, notch-safe layout.
+  - **LÖVE 12 + LÖVE 11.5/11.4 Compatibility**: `src/compat.lua` supports both LÖVE 12 and `love.js` 11.4.1 browser builds, plus IndexedDB save sync on mobile browsers.
+  - **Quick Race**: picks a random track and car on launch and after each finished race.
 
-### Tracks, Rubber & Brake Markers
-- Kept only the **9 real circuits** with country flags & palettes: Mugello GP, Imola, Barcelona, Spielberg, Monza, Brands Hatch, Interlagos, Austin, and Monaco.
-- Added **3-2-1 brake reference markers** (300 m, 200 m, 100 m) inside the track map along the outside edge before major braking zones.
-- Added a **rubbered-in racing line**: visibly darker groove along the ideal racing line with much higher tyre grip, rewarding proper corner entry positioning.
+### XOROZ Edition Customizations (Preserved)
+- **6-car garage** across two distinct classes (**ROAD**: `HOT HATCH` FWD, `ROCKET` RWD, `PANAME` AWD; **RACE**: `FORMULA KID` Tatuus T-318 F3, `PURSA GT3` AWD, `FORMULA 1 1988` McLaren MP4/4), non-mixing by default (`MIX CLASSES` toggle).
+- **1 to 5 star car cards** with category badge, Max Speed, and drivetrain.
+- **9 real circuits only** (Mugello GP, Imola, Barcelona, Spielberg, Monza, Brands Hatch, Interlagos, Austin, Monaco) with country flags, **3-2-1 brake reference markers** inside the track map, and a darker high-grip **rubbered-in racing line**.
+- **TOP** camera mode as default (higher, fixed top-down view), **Ghost** default **ON**, editable **PLAYER NAME** saved on records & ghosts, in-game **CHANGELOG** viewer, and `Version edited by XOROZ` credit.
 
-### Camera, Ghosts, Player Name & UI
-- Added new **TOP** camera mode (higher, fixed top-down view with forward look-ahead) and set it as the default camera.
-- **Ghost** loading now defaults to **ON** (`#1` fastest lap for the track when available).
-- Added editable **PLAYER NAME** in Settings and Race/Time Trial Setup; saved on local/central lap records and ghosts.
-- Added an in-game **CHANGELOG** viewer in the main menu and updated **CREDITS** with `Version edited by XOROZ`.
-- Faster parallel test suite with cached track builds and focused 6-car / 9-circuit coverage.
+## 4.0.1 (2026-11-18) — Upstream
+
+- MY TRACKS, under TRACKS ONLINE, lists the tracks you've saved, got online or made in
+  the editor, and deletes the ones you don't want. The built-in tracks stay.
+- MONTE CARLO GP (and any track with its own runoff) said GET again after you got it,
+  and each GET saved another copy without its runoff. It now saves whole and says
+  GOT. Delete the extra copies in MY TRACKS, then GET it once more.
+- The editor keeps a track's runoff when you open and save it.
+
+## 4.0.0 (2026-11-18)
+
+Races 3.0 to 3.7: tracks match online as before. The server update only tells games
+where its track list is.
+
+### Tracks online, in the game
+
+- TRACKS ONLINE on the main menu lists the tracks on
+  [spppd.xyz/tracks](https://spppd.xyz/tracks/), with each one's outline, length and
+  maker. GET saves one to your tracks; then it's in RACE, TIME TRIAL and the editor.
+  It works on phones too.
+- The editor's BROWSE TRACKS ONLINE opens the same list, and comes back to the editor.
+- SEND ONLINE in the editor sends your track in, with your name and, if you like, an
+  email for feedback. It shows in TRACKS ONLINE once it's been checked.
+- Both use the server you set. SERVER is now in SETTINGS too, not only on the ONLINE
+  screen. A relay you run yourself serves its tracks over plain HTTP, which works on
+  your own network: see the README.
+- The browser version still opens the page instead.
+
+### Server
+
+- The relay tells games where its track list is. `-web` sets that address, for a relay
+  behind a proxy that does HTTPS; without it, games use plain HTTP on the `-status`
+  port. Update the relay before the games, or each game waits a moment and then tries
+  HTTPS at the relay's address.
+
+### Quick race
+
+- QUICK RACE picks its own track and car at random: when the game opens, and again
+  after every race you finish. The laps, grid and time of day are still RACE's, and
+  RACE keeps what you set there.
+
+### Phones
+
+- A menu row fires when your finger lifts, not when it lands, and lights up while
+  you hold it. Slide off before lifting and nothing happens.
+- Rows are a thumb's height, and rows with choices have < and > buttons to tap.
+  Longer lists turn pages with MORE, and race setup keeps START at the bottom of
+  every page.
+- BACK sits at the top of every screen, in the same place each time, instead of at
+  the end of the list.
+- ONLINE puts QUICK MATCH, HOST A ROOM, ROOM CODE and JOIN A ROOM first.
+- The menus and the race reach the screen's edges again, keeping clear of only the
+  camera notch.
+- The notes on ONLINE no longer run into the car beside them.
+- RESET in a race also fires on the lift, so you can slide off it. Pause still
+  answers at once.
+
+### New engine
+
+- SPPPD now runs on LÖVE 12, which can fetch over HTTPS. The barriers, the handling
+  and the look are unchanged.
+- Downloads for Linux (an AppImage) and macOS (an app), as LÖVE 12 isn't out on its
+  own yet. The .love file still runs on LÖVE 11.5, without TRACKS ONLINE. These
+  keep their saves in a folder of their own: to bring yours over from the .love,
+  copy `~/.local/share/love/spppd` to `~/.local/share/spppd` on Linux, or
+  `~/Library/Application Support/LOVE/spppd` to `~/Library/Application Support/spppd`
+  on a Mac.
+- No more 32-bit Windows build: LÖVE 12 has none.
+- Android needs 7.0 or later.
+- On a phone, the game goes quiet when you leave it for the home screen or another
+  app, and picks up where it was when you come back.
+- The first launch after updating builds the sounds again, once.
+
+## 3.7.0 (2026-11-18)
+
+3.7.0 races 3.0 to 3.6. Online races match tracks as before, and older games can
+import tracks from the new tracks page too. The server update adds that page's track
+server.
+
+### Tracks
+
+- [spppd.xyz/tracks](https://spppd.xyz/tracks/) has tracks made by players, to copy
+  into the editor: COPY CODE, then IMPORT and PASTE FROM CLIPBOARD in the game. On a
+  computer, DOWNLOAD the file and drop it on the editor. Any version with IMPORT reads
+  them.
+- Send in your own on the same page: paste its code or pick its file. It shows up once
+  it's been checked. Leave an email, if you like, to hear back about it.
+- The editor's IMPORT has BROWSE TRACKS ONLINE, which opens that page.
+- Tracks show who made them: SPPPD for the built-ins, and the sender's name for
+  tracks from the site, in race setup and the editor's OPEN list. Your own tracks say
+  YOURS there.
+
+## 3.6.0 (2026-11-18)
+
+3.6.0 races 3.0 to 3.5. No server change. An older game shows FORMULA KID as a HOT
+HATCH. The first launch after updating builds the sounds again, once.
+
+### Play in your browser
+
+- SPPPD runs in the browser at [spppd.xyz/play](https://spppd.xyz/play/), with
+  nothing to install. On a phone it has the touch controls and the big menus. Online
+  races, sharing tracks and the freestyle radio need the downloaded game. Your
+  settings and tracks stay in that browser.
+
+### Driving
+
+- EASY handling: ARCADE with half as much grip again, on every car. The computer
+  drivers stay on ARCADE beside you, and online EASY drives as ARCADE.
+- FORMULA KID, a junior single-seater: 640 kg, a small turbo four, the grippiest tyres
+  in the garage and the lowest top speed, 228 km/h.
+
+### Menus
+
+- QUICK RACE, first in the main menu, starts the race you last set up in one press.
+- Race setup shows each car's SPEED, ACCEL, BRAKE, HANDLING and TIRES, measured by
+  driving it.
+
+### Track editor
+
+- EXPORT saves the track as a `.spppd` file and opens the folder it's in, so you can
+  send it to anyone. COPY CODE puts it on the clipboard as one line instead.
+- IMPORT opens a track file from that folder or a code from the clipboard, and
+  dropping a track file on the editor opens it too.
+
+Thanks to [@xoroz](https://github.com/xoroz), whose fork started EASY handling, the car
+stats, QUICK RACE, FORMULA KID (their TATUS) and the browser version.
 
 ## 3.5.0 (2026-11-09)
 

@@ -23,13 +23,12 @@ if ! command -v npx >/dev/null; then
   exit 0
 fi
 
-# love.js 11.4 shows a version warning for a game asking for 11.5, so the web copy asks for 11.4.
+# conf.lua adapts t.version to LÖVE 11.4 automatically; turn off highdpi for mobile browsers.
 mkdir -p dist/web-src
 cp -r main.lua conf.lua LICENSE CHANGELOG.md assets src dist/web-src/
-sed -i 's/t.version = "11.5"/t.version = "11.4"/' dist/web-src/conf.lua
 # highdpi makes the phone (devicePixelRatio 3) ignore the requested window size and stay 1280x720.
 sed -i "s/t.window.highdpi = true/t.window.highdpi = false/" dist/web-src/conf.lua
-grep -q 't.version = "11.4"' dist/web-src/conf.lua || { echo "failed to patch conf.lua to 11.4"; exit 1; }
+grep -q 't.window.highdpi = false' dist/web-src/conf.lua || { echo "failed to patch highdpi in conf.lua"; exit 1; }
 (cd dist/web-src && zip -q -9 -r ../spppd-web.love .)
 # -c = compatibility mode: no threads, so the server needs no COOP/COEP headers.
 # -m: the heap. Generated textures, car sprites and every sound live in it.

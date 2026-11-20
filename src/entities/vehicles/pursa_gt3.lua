@@ -1,4 +1,4 @@
-local base = require("src/entities/vehicles/base")
+local base = require("src.entities.vehicles.base")
 
 -- Porsche 911 GT3 RS (992) race spec with AWD: 4.0L flat-6, 525 PS (386 kW),
 -- 1450 kg, 9000 rpm redline, huge aero downforce and late braking.

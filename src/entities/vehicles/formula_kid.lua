@@ -1,4 +1,4 @@
-local base = require("src/entities/vehicles/base")
+local base = require("src.entities.vehicles.base")
 
 -- Tatuus T-318 (Formula Regional / F3): 1.75L turbo I4, 275 hp (~205 kW),
 -- 665 kg with driver, 2750 mm wheelbase, soft slick tyres with huge corner grip.

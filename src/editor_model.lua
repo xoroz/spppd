@@ -1,7 +1,7 @@
 -- Track editing without any drawing: a document of spline nodes plus undo.
 -- Keeping this apart from the screen code means it can be tested directly.
-local Track = require("src/sim/track")
-local config = require("src/config")
+local Track = require("src.sim.track")
+local config = require("src.config")
 
 local model = {}
 
@@ -58,8 +58,10 @@ function model.fromEntry(entry)
   local def = entry.def
   local doc = model.new(entry.name)
   doc.title = entry.title
+  doc.author = entry.author or def.author
   doc.theme = def.theme or "meadow"
   doc.scale = def.scale or config.TRACK_SCALE
+  doc.runoff = def.runoff
   doc.builtin = entry.builtin
   if def.nodes then
     doc.nodes = copyNodes(def.nodes)
@@ -73,7 +75,7 @@ end
 
 function model.definition(doc)
   return {
-    title = doc.title, theme = doc.theme, scale = doc.scale,
+    title = doc.title, author = doc.author, theme = doc.theme, scale = doc.scale, runoff = doc.runoff,
     nodes = doc.nodes, startPoint = doc.startPoint,
   }
 end

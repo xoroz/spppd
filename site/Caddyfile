@@ -2,6 +2,13 @@
 # and health checks /up. Caddy logs no requests (no `log` directive).
 {
 	admin off
+	# kamal-proxy, on the kamal network, says who the visitor is. {client_ip} is then
+	# the visitor, which the track server needs to count uploads. Strict reads
+	# X-Forwarded-For from the right, so a visitor can't put a made-up address first.
+	servers {
+		trusted_proxies static private_ranges
+		trusted_proxies_strict
+	}
 }
 
 :80 {
@@ -23,15 +30,37 @@
 		reverse_proxy {$SPPPD_RELAY_STATUS:spppd-relay:8081}
 	}
 
+	# The track server, for /tracks/: the list, track files and uploads. Uploads are
+	# small, and the relay counts them by the visitor's address.
+	handle /api/tracks* {
+		request_body {
+			max_size 128KB
+		}
+		reverse_proxy {$SPPPD_RELAY_STATUS:spppd-relay:8081} {
+			header_up X-Real-IP {client_ip}
+		}
+	}
+
 	root * /srv
 	encode zstd gzip
 
 	header {
-		# Umami's script and its reports go to stats.hblabs.xyz; nothing else leaves.
-		Content-Security-Policy "default-src 'self'; script-src 'self' https://stats.hblabs.xyz; connect-src 'self' https://stats.hblabs.xyz; img-src 'self'; media-src 'self'; style-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'none'; object-src 'none'"
 		X-Content-Type-Options nosniff
 		Referrer-Policy strict-origin-when-cross-origin
 		Permissions-Policy "camera=(), microphone=(), geolocation=(), interest-cohort=()"
+	}
+
+	# Umami's script and its reports go to stats.hblabs.xyz; nothing else leaves.
+	@pages not path /play/*
+	header @pages Content-Security-Policy "default-src 'self'; script-src 'self' https://stats.hblabs.xyz; connect-src 'self' https://stats.hblabs.xyz; img-src 'self'; media-src 'self'; style-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'none'; object-src 'none'"
+
+	# The browser version (make web). The same, plus compiling LÖVE's WebAssembly.
+	# Its files keep their names from one version to the next, so the browser checks
+	# them each visit (a 304 when nothing's changed).
+	@play path /play/*
+	header @play {
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://stats.hblabs.xyz; connect-src 'self' https://stats.hblabs.xyz; img-src 'self'; media-src 'self'; style-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'none'; object-src 'none'"
+		Cache-Control "no-cache"
 	}
 
 	# Astro names these by their contents, so they never change.

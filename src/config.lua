@@ -1,13 +1,18 @@
 -- Global tuning constants. Everything here is shared by the simulation,
 -- the renderer and the tests, so it must stay free of LÖVE calls.
 local config = {
-  VERSION = "3.6.0",
+  VERSION = "4.0.1",
   -- The Android version code: major * 10000 + minor * 100 + patch. Stores like
   -- F-Droid only offer an update when it goes up, so bump it with VERSION.
-  VERSION_CODE = 30600,
+  VERSION_CODE = 40001,
   -- What the official server keeps, and its rules: PRIVACY.md on the website, which
   -- links to TERMS.md.
   PRIVACY_URL = "https://spppd.xyz/privacy/",
+  -- The track server's page: tracks to copy into the editor, and a form to send one.
+  TRACKS_URL = "https://spppd.xyz/tracks/",
+  -- Where TRACKS ONLINE reads every approved track, as JSON, on the SERVER the
+  -- settings name (spppd.xyz unless you run your own): https://<host> plus this.
+  TRACKS_API_PATH = "/api/tracks",
 
   -- World units are pixels; the vehicle model works in SI units.
   METER = 12,          -- world px per metre

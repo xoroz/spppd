@@ -8,44 +8,12 @@
 -- A driver belongs to one server, so the file keeps one for each server address.
 -- Requests use a socket of their own and wait on nothing: each is repeated four
 -- times a second until the server answers, as the room requests are.
+-- The browser build has no sockets, and no online play.
 local hasSocket, socket = pcall(require, "socket")
 if not hasSocket then socket = nil end
-local hasBit, bitlib = pcall(require, "bit")
--- The browser build's Lua 5.1 lacks LuaJIT's `bit` library; keep pure-Lua fallbacks.
-local bit = (hasBit and bitlib) or bit32 or (function()
-  local m = {}
-  function m.lshift(a, n) return math.floor(a * (2 ^ n)) end
-  function m.rshift(a, n) return math.floor(a / (2 ^ n)) end
-  function m.band(a, b)
-    local r, p = 0, 1
-    while a > 0 and b > 0 do
-      local ra, rb = a % 2, b % 2
-      if ra == 1 and rb == 1 then r = r + p end
-      a, b, p = (a - ra) / 2, (b - rb) / 2, p * 2
-    end
-    return r
-  end
-  function m.bor(a, b)
-    local r, p = 0, 1
-    while a > 0 or b > 0 do
-      local ra, rb = a % 2, b % 2
-      if ra == 1 or rb == 1 then r = r + p end
-      a, b, p = (a - ra) / 2, (b - rb) / 2, p * 2
-    end
-    return r
-  end
-  function m.bxor(a, b)
-    local r, p = 0, 1
-    while a > 0 or b > 0 do
-      local ra, rb = a % 2, b % 2
-      if ra ~= rb then r = r + p end
-      a, b, p = (a - ra) / 2, (b - rb) / 2, p * 2
-    end
-    return r
-  end
-  return m
-end)()
-local settings = require("src/settings")
+local bit = require("src.lib.bit")
+local settings = require("src.settings")
+local compat = require("src.compat")
 
 local account = {
   FILE = "account.lua",
@@ -125,7 +93,7 @@ end
 -- tests share a vector.
 function account.hmac(key, message)
   local block = 64
-  if #key > block then key = love.data.hash("sha256", key) end
+  if #key > block then key = compat.hash("sha256", key) end
   key = key .. string.rep("\0", block - #key)
   local inner, outer = {}, {}
   for i = 1, block do
@@ -133,8 +101,8 @@ function account.hmac(key, message)
     inner[i] = string.char(bit.bxor(b, 0x36))
     outer[i] = string.char(bit.bxor(b, 0x5c))
   end
-  local first = love.data.hash("sha256", table.concat(inner) .. message)
-  return love.data.hash("sha256", table.concat(outer) .. first)
+  local first = compat.hash("sha256", table.concat(inner) .. message)
+  return compat.hash("sha256", table.concat(outer) .. first)
 end
 
 function account.proofOf(key, message)
@@ -161,7 +129,7 @@ local function randomBytes(n)
   local seed = table.concat(parts, "|")
   local raw = ""
   while #raw < n do
-    seed = love.data.hash("sha256", seed .. #raw)
+    seed = compat.hash("sha256", seed .. #raw)
     raw = raw .. seed
   end
   return raw:sub(1, n)

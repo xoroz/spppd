@@ -150,6 +150,7 @@ type Relay struct {
 	cookieKey  []byte
 	maxPlayers int
 	maxRooms   int // 0 for no limit beyond maxPlayers
+	web        string // what event|web answers, see web.go; "" for no track server
 	events     []Event
 	eventSeq   uint64
 	total      Traffic
@@ -366,6 +367,10 @@ func (r *Relay) Handle(data []byte, addr *net.UDPAddr) {
 	}
 
 	parts := strings.SplitN(string(data), "|", 12)
+	if len(parts) > 1 && parts[1] == "web" {
+		r.answerWeb(len(data), addr)
+		return
+	}
 	if len(parts) > 1 && driverIntents[parts[1]] {
 		r.driverRequest(parts, len(data), addr)
 		return
@@ -980,9 +985,11 @@ func main() {
 	rooms := flag.Int("max-rooms", 0, "rooms open at once, waiting or racing; 0 for no limit beyond -max-players")
 	quickFill := flag.Duration("quick-fill", 15*time.Second, "how long a quick match takes drivers once a second has joined")
 	dashboard := flag.String("dashboard", "", "HTTP address for the dashboard (off if empty)")
-	statusAddr := flag.String("status", "", "HTTP address for the public status at /api/status (off if empty)")
+	statusAddr := flag.String("status", "", "HTTP address for the public status at /api/status, and the track server with -tracks (off if empty)")
 	dbPath := flag.String("db", "spppd-relay.db", "SQLite file for bans, drivers, dashboard users and analytics; empty keeps them in memory")
 	tempPath := flag.String("temp-db", "spppd-relay-temp.db", "SQLite file for rooms and recent activity, so a restart doesn't end races; empty for none")
+	tracksOn := flag.Bool("tracks", false, "with -status, run the track server: /api/tracks takes tracks players send in, which wait on the dashboard for approval")
+	webFlag := flag.String("web", "", "where games find /api/tracks, like https://spppd.xyz behind a proxy; empty with -tracks: plain http on the -status port, at the relay's host")
 	analytics := flag.Bool("analytics", false, "count unique IPs (as keyed hashes), rooms, races and traffic")
 	analyticsDays := flag.Int("analytics-days", 30, "days to keep the hashed IPs behind the unique counts; daily totals are kept")
 	adminUser := flag.String("admin-user", envOr("SPPPD_ADMIN_USER", "admin"), "dashboard user made from SPPPD_ADMIN_PASSWORD when there are no users yet")
@@ -1075,10 +1082,25 @@ func main() {
 		log.Printf("Analytics on, keeping hashed IPs for %d days", *analyticsDays)
 	}
 
+	var tracks *TrackServer
+	if *tracksOn {
+		if *statusAddr == "" {
+			log.Fatalf("-tracks needs -status, which serves /api/tracks")
+		}
+		tracks = NewTrackServer(store, relay.Note)
+		log.Print("Track server on, at /api/tracks")
+	}
+	if relay.web, err = webAddress(*webFlag, *statusAddr, *tracksOn); err != nil {
+		log.Fatal(err)
+	}
+	if relay.web != "" {
+		log.Printf("Games are told the web side is at %s", relay.web)
+	}
+
 	if *dashboard != "" {
 		server := &http.Server{
 			Addr:    *dashboard,
-			Handler: newDashboard(relay, store, *analyticsDays),
+			Handler: newDashboard(relay, store, *analyticsDays, tracks),
 			// Nobody holds a connection open for nothing.
 			ReadHeaderTimeout: 5 * time.Second,
 			ReadTimeout:       10 * time.Second,
@@ -1095,7 +1117,7 @@ func main() {
 	if *statusAddr != "" {
 		server := &http.Server{
 			Addr:              *statusAddr,
-			Handler:           newStatusPage(relay),
+			Handler:           newStatusPage(relay, tracks),
 			ReadHeaderTimeout: 5 * time.Second,
 			ReadTimeout:       10 * time.Second,
 			WriteTimeout:      10 * time.Second,

@@ -1,12 +1,12 @@
 -- The 6 selectable cars, in menu order (3 ROAD + 3 RACE).
 -- XOROZ edition: race and road categories stay separated by default.
 local garage = {
-  require("src/entities/vehicles/hot_hatch"),
-  require("src/entities/vehicles/rocket"),
-  require("src/entities/vehicles/paname"),
-  require("src/entities/vehicles/formula_kid"),
-  require("src/entities/vehicles/pursa_gt3"),
-  require("src/entities/vehicles/formula_1_1988"),
+  require("src.entities.vehicles.hot_hatch"),
+  require("src.entities.vehicles.rocket"),
+  require("src.entities.vehicles.paname"),
+  require("src.entities.vehicles.formula_kid"),
+  require("src.entities.vehicles.pursa_gt3"),
+  require("src.entities.vehicles.formula_1_1988"),
 }
 
 garage.CATEGORIES = { "road", "race" }

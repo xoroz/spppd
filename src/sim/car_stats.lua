@@ -1,8 +1,11 @@
 -- Each car's SPEED, ACCEL, BRAKE, HANDLING and TIRES, measured by driving it
 -- through the real dynamics on SPORT, the realistic tier, rather than typed in.
--- So the menu's numbers can't drift from how the car actually drives.
-local dynamics = require("src/sim/dynamics")
-local config = require("src/config")
+--
+-- Measuring the garage takes about half a second with the JIT off, as it is on a
+-- phone, so the numbers ship in car_stats_data.lua, written by `make car-stats`.
+-- A test measures again and fails when a car's tuning no longer matches them.
+local dynamics = require("src.sim.dynamics")
+local config = require("src.config")
 
 local stats = {}
 
@@ -98,24 +101,41 @@ local function cornering(spec)
   return peak / G
 end
 
+-- The raw numbers for one car, measured now.
+function stats.measure(spec)
+  local top, t100 = straight(spec)
+  return { speed = top, accel = t100, brake = stopping(spec), handling = slalom(spec), tires = cornering(spec) }
+end
+
+-- Rounded as the data file keeps them.
+local DIGITS = { speed = 1, accel = 2, brake = 1, handling = 3, tires = 3 }
+function stats.round(raw)
+  local out = {}
+  for _, key in ipairs(stats.ORDER) do
+    local f = 10 ^ DIGITS[key]
+    out[key] = math.floor(raw[key] * f + 0.5) / f
+  end
+  return out
+end
+
 local function score(key, value)
   local lo, hi = stats.RANGES[key][1], stats.RANGES[key][2]
   return math.max(0, math.min(1, (value - lo) / (hi - lo)))
 end
 
+local ok, shipped = pcall(require, "src.sim.car_stats_data")
+stats.shipped = ok and type(shipped) == "table" and shipped or {}
 local cache = {}
 
--- { speed = { value, score, text }, ... } with score 0..1. Measured once per car.
+-- { speed = { value, score, stars, text }, ... } with score 0..1, from the shipped
+-- numbers, or measured once for a car they don't have.
 function stats.of(spec)
   local done = cache[spec]
   if done then return done end
-  local top, t100 = straight(spec)
-  local raw = {
-    speed = top, accel = t100, brake = stopping(spec), handling = slalom(spec), tires = cornering(spec),
-  }
+  local raw = stats.shipped[spec.id] or stats.round(stats.measure(spec))
   local texts = {
-    speed = string.format("%.0f KM/H", top),
-    accel = string.format("%.1f S", t100),
+    speed = string.format("%.0f KM/H", raw.speed),
+    accel = string.format("%.1f S", raw.accel),
     brake = string.format("%.0f M", raw.brake),
     tires = string.format("%.2f G", raw.tires),
   }
@@ -129,4 +149,19 @@ function stats.of(spec)
   return done
 end
 
+-- The data file's text, for the whole garage.
+function stats.file(garage)
+  local lines = {
+    "-- Written by `make car-stats` from src/sim/car_stats.lua. Don't edit by hand.",
+    "return {",
+  }
+  for _, spec in ipairs(garage) do
+    local r = stats.round(stats.measure(spec))
+    lines[#lines + 1] = string.format("  %s = { speed = %s, accel = %s, brake = %s, handling = %s, tires = %s },",
+      spec.id:match("^[%a_][%w_]*$") and spec.id or string.format("[%q]", spec.id),
+      r.speed, r.accel, r.brake, r.handling, r.tires)
+  end
+  lines[#lines + 1] = "}"
+  return table.concat(lines, "\n") .. "\n"
+end
 return stats

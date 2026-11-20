@@ -1,5 +1,20 @@
 -- Procedural textures: nothing here needs an asset file.
 local textures = {}
+local compat = require("src.compat")
+
+-- WebGL 1 (the browser build) can't mipmap a texture whose sides aren't powers of
+-- two. Such a texture goes without there.
+function textures.canMipmap(w, h)
+  local function pot(n) return n >= 1 and 2 ^ math.floor(math.log(n) / math.log(2) + 0.5) == n end
+  return compat.fullnpot() or (pot(w) and pot(h))
+end
+
+local function mipmapped(data)
+  local mipmaps = textures.canMipmap(data:getDimensions())
+  local image = love.graphics.newImage(data, { mipmaps = mipmaps })
+  if mipmaps then image:setMipmapFilter("linear") end
+  return image
+end
 
 -- WebGL 1 (the browser build) can't mipmap a texture whose sides aren't powers of
 -- two. Such a texture goes without there.
@@ -125,7 +140,7 @@ local function palm(size)
   love.graphics.circle("fill", c, c, c * 0.11)
   love.graphics.setCanvas()
   love.graphics.setColor(1, 1, 1)
-  local image = mipmapped(canvas:newImageData())
+  local image = mipmapped(compat.readback(canvas))
   image:setFilter("linear", "linear")
   canvas:release()
   return image
