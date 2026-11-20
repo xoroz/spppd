@@ -214,14 +214,16 @@ function menu.startRace(extra)
     local spec2, color2 = driverCar(2)
     player2 = { spec = spec2, color = color2, name = "P2",
       assist = settings.assists2, manualGearbox = settings.gearbox2 == "manual" }
-    playerName = "P1"
+    playerName = settings.driverName()
+  else
+    playerName = settings.driverName()
   end
   local ghostEntry = nil
   if not extra.online and not extra.fromEditor and (mode == "race" or mode == "trial") and entry then
     local ghosts = settings.topGhosts(entry.name)
     local idx = tonumber(settings.selectedGhost) or 0
-    if idx >= 1 and ghosts[idx] then
-      local g = ghosts[idx]
+    if idx >= 1 and #ghosts >= 1 then
+      local g = ghosts[idx] or ghosts[1]
       local gSpec = (g.car and garage.byId(g.car)) or spec
       ghostEntry = {
         time = g.time,
@@ -243,6 +245,7 @@ function menu.startRace(extra)
     color = currentColor(spec),
     laps = extra.laps or (mode == "race" and settings.laps or 9999),
     opponents = mode == "race" and settings.opponents or 0,
+    mixCategories = settings.mixCategories,
     difficulty = settings.difficulty,
     time = extra.time or settings.time,
     fromEditor = extra.fromEditor,
@@ -288,6 +291,10 @@ local function mainRows()
   end
   rows[#rows + 1] = { label = "SETTINGS", activate = function() menu.go("settings") end }
   rows[#rows + 1] = { label = "CONTROLS", activate = function() menu.go("controls") end }
+  rows[#rows + 1] = { label = "CHANGELOG", activate = function()
+      menu.changelogScroll = 1
+      menu.go("changelog")
+    end }
   rows[#rows + 1] = { label = "CREDITS", activate = function() menu.go("credits") end }
   -- Quitting a browser tab's game would leave a frozen page.
   if not web.on then rows[#rows + 1] = { label = "QUIT", activate = function() love.event.quit() end } end
@@ -345,37 +352,35 @@ end
 
 local function formatGhostChoice(rank, entry)
   if not entry then return "OFF" end
-  local spec = entry.car and garage.byId(entry.car)
-  local carName = spec and spec.name or tostring(entry.car or "CAR"):upper()
-  return string.format("#%d %s %s", rank, hud.formatTime(entry.time), carName)
+  local who = tostring(entry.name or "GHOST"):sub(1, 8)
+  return string.format("#%d %s %s", rank, hud.formatTime(entry.time), who)
 end
 
 local function addGhostRows(rows)
   local entry = currentEntry()
   local ghosts = entry and settings.topGhosts(entry.name) or {}
   if #ghosts == 0 then
-    settings.selectedGhost = 0
     menu.ghostDropdown = false
     rows[#rows + 1] = {
       label = "LOAD GHOST",
-      value = "NONE",
+      value = (tonumber(settings.selectedGhost) or 0) >= 1 and "ON (NONE YET)" or "OFF",
       disabled = true,
     }
     return
   end
-  if (tonumber(settings.selectedGhost) or 0) < 0 or (tonumber(settings.selectedGhost) or 0) > #ghosts then
-    settings.selectedGhost = 0
-  end
+  local curIdx = tonumber(settings.selectedGhost) or 1
+  if curIdx < 0 then curIdx = 0 elseif curIdx > #ghosts then curIdx = 1 end
   local function shiftGhost(d)
-    settings.selectedGhost = ((tonumber(settings.selectedGhost) or 0) + d) % (#ghosts + 1)
+    settings.selectedGhost = (curIdx + d) % (#ghosts + 1)
     save()
   end
   rows[#rows + 1] = {
     label = "LOAD GHOST",
     value = function()
       local idx = tonumber(settings.selectedGhost) or 0
-      if idx >= 1 and ghosts[idx] then
-        return formatGhostChoice(idx, ghosts[idx])
+      if idx >= 1 then
+        local g = ghosts[idx] or ghosts[1]
+        return formatGhostChoice(ghosts[idx] and idx or 1, g)
       end
       return menu.ghostDropdown and ("TOP " .. #ghosts .. " OPEN") or "OFF"
     end,
@@ -400,8 +405,9 @@ local function addGhostRows(rows)
       local idx = i
       local spec = g.car and garage.byId(g.car)
       local carName = spec and spec.name or tostring(g.car or "CAR"):upper()
+      local who = tostring(g.name or "YOU"):sub(1, 8)
       rows[#rows + 1] = {
-        label = string.format("%s#%d %s", (tonumber(settings.selectedGhost) or 0) == idx and "* " or "  ", idx, hud.formatTime(g.time)),
+        label = string.format("%s#%d %s %s", (tonumber(settings.selectedGhost) or 0) == idx and "* " or "  ", idx, hud.formatTime(g.time), who),
         value = carName,
         activate = function()
           settings.selectedGhost = idx
@@ -471,6 +477,24 @@ local function driverRow()
     function(v) menu.driver = v end, { 1, 2 }, { "P1", "P2" })
 end
 
+local function playerNameRow()
+  return {
+    label = "PLAYER NAME",
+    value = function()
+      if ui.editing and ui.editing.field == "playerName" then return ui.editing.value .. "_" end
+      return settings.driverName()
+    end,
+    activate = function()
+      ui.startEditing(settings.driverName(), function(v)
+        settings.playerName = v
+        settings.playerName = settings.driverName()
+        save()
+      end, "^[%w_%- ]$", 12)
+      ui.editing.field = "playerName"
+    end,
+  }
+end
+
 local function setupRows()
   -- START comes first, and the screen opens on it: two presses from the main menu
   -- start a race as it was last set up.
@@ -495,6 +519,9 @@ local function setupRows()
     rows[#rows + 1] = carRow()
     rows[#rows + 1] = paintRow()
   end
+  if mode == "race" or mode == "trial" then
+    rows[#rows + 1] = playerNameRow()
+  end
   -- Open counts every lap; clean voids one that goes off, cuts, resets or wrecks.
   if mode == "trial" then
     rows[#rows + 1] = stepper("RULES", function() return settings.trialRules end,
@@ -504,6 +531,7 @@ local function setupRows()
   if mode == "race" then
     rows[#rows + 1] = lapsRow()
     rows[#rows + 1] = numberStepper("OPPONENTS", "opponents", 0, config.OPPONENTS_MAX)
+    rows[#rows + 1] = toggle("MIX CLASSES", "mixCategories")
     rows[#rows + 1] = stepper("DIFFICULTY", function() return settings.difficulty end,
       function(v) settings.difficulty = v end, DIFFICULTIES, DIFFICULTY_NAMES)
   end
@@ -548,6 +576,7 @@ end
 
 local function settingsRows()
   local rows = {
+    playerNameRow(),
     stepper("VOLUME", function() return settings.volume end, function(v)
       settings.volume = v
       audio.setVolume(v)
@@ -558,7 +587,7 @@ local function settingsRows()
       music.setTake(v)
     end, music.ORDER, { a = music.TAKES.a.name, b = music.TAKES.b.name, c = music.TAKES.c.name }),
     stepper("CAMERA", function() return settings.camera end, function(v) settings.camera = v end,
-      { "chase", "fixed" }, { chase = "CHASE", fixed = "FIXED" }),
+      { "top", "fixed", "chase" }, { top = "TOP", fixed = "FIXED", chase = "CHASE" }),
     stepper("ZOOM", function() return settings.zoom end, function(v) settings.zoom = v end,
       { "near", "mid", "far" }, { near = "NEAR", mid = "MID", far = "FAR" }),
     stepper("UNITS", function() return settings.units end, function(v) settings.units = v end,
@@ -1142,7 +1171,7 @@ local function drawBoard(sw, sh, s, title, titleColor)
   if title then
     ui.text(title, 14 * s, 56 * s, 7 * s, titleColor or colors.marshal)
   end
-  ui.text("v" .. config.VERSION, 14 * s, sh - 12 * s, 5 * s, colors.muted)
+  ui.text("v" .. config.VERSION .. "  XOROZ", 14 * s, sh - 12 * s, 5 * s, colors.muted)
   return w
 end
 
@@ -1158,26 +1187,41 @@ local function drawCar(spec, color, cx, cy, s, spin)
   love.graphics.draw(sprite.detail, cx, cy, spin, scale, scale, sprite.ox, sprite.oy)
 end
 
--- SPEED, ACCEL, BRAKE, HANDLING and TIRES across the foot of the car panel: a
--- ten-step bar each, with the measured number under it.
+-- Five-point star icon drawn cleanly at any scale.
+local function drawStar(cx, cy, r, lit)
+  local inner = r * 0.44
+  local pts = {}
+  for i = 0, 9 do
+    local a = -math.pi / 2 + i * math.pi / 5
+    local rad = (i % 2 == 0) and r or inner
+    pts[#pts + 1] = cx + math.cos(a) * rad
+    pts[#pts + 1] = cy + math.sin(a) * rad
+  end
+  local c = lit and colors.marshal or colors.asphalt
+  love.graphics.setColor(c[1], c[2], c[3], lit and 1 or 0.75)
+  for i = 1, 10 do
+    local j = i % 10 + 1
+    love.graphics.polygon("fill", cx, cy, pts[i * 2 - 1], pts[i * 2], pts[j * 2 - 1], pts[j * 2])
+  end
+end
+
+-- SPEED, ACCEL, BRAKE, HANDLING and TIRES across the foot of the car panel:
+-- 1 to 5 stars each (max speed is shown on the card header).
 local function drawCarStats(spec, x, y, w, s)
   local measured = carStats.of(spec)
   local count = #carStats.ORDER
   local gap = 6 * s
   local cell = (w - gap * (count - 1)) / count
-  local segments, segGap = 10, 1 * s
-  local segW = (cell - segGap * (segments - 1)) / segments
+  local starR = math.min(3.4 * s, (cell - 4 * s) / 11)
+  local starStep = starR * 2.25
   for i, key in ipairs(carStats.ORDER) do
     local cx = x + (i - 1) * (cell + gap)
     local stat = measured[key]
     ui.text(carStats.LABELS[key], cx, y, 5 * s, colors.muted)
-    local lit = math.max(1, math.floor(stat.score * segments + 0.5))
-    for j = 1, segments do
-      local c = j <= lit and colors.marshal or colors.asphalt
-      love.graphics.setColor(c[1], c[2], c[3], j <= lit and 1 or 0.9)
-      love.graphics.rectangle("fill", cx + (j - 1) * (segW + segGap), y + 9 * s, segW, 4 * s)
+    local stars = stat.stars or math.max(1, math.min(5, math.floor(stat.score * 4 + 1.5)))
+    for j = 1, 5 do
+      drawStar(cx + starR + (j - 1) * starStep, y + 12 * s, starR, j <= stars)
     end
-    ui.text(stat.text, cx, y + 16 * s, 5 * s, colors.paint)
   end
 end
 
@@ -1264,17 +1308,27 @@ local function drawSetupPreview(sw, sh, boardW, s, carOnly)
     withStats = notesBottom + 6 * s <= sh - 114 * s
   end
 
-  local panelH = (withStats and 100 or 72) * s
+  local panelH = (withStats and 96 or 70) * s
   local py = sh - panelH - 14 * s
   ui.panel(x, py, w, panelH, 0.82)
-  drawCar(spec, color, x + 42 * s, py + 36 * s, s, 0)
+  drawCar(spec, color, x + 42 * s, py + 34 * s, s, 0)
   local tx = x + 84 * s
   ui.text(spec.name, tx, py + 7 * s, 8 * s, colors.paint)
-  if two then ui.text("P" .. menu.driver, x, py + 7 * s, 8 * s, colors.marshal, "right", w - 6 * s) end
-  ui.text(string.format("%.0f KW  %s  %.0f KG", dynamics.peakPower(spec) / 1000, spec.drive, spec.mass),
-    tx, py + 21 * s, 6 * s, colors.marshal)
-  ui.text(spec.blurb, tx, py + 33 * s, 6 * s, colors.muted, "left", w - 90 * s)
-  if withStats then drawCarStats(spec, x + 6 * s, py + 70 * s, w - 12 * s, s) end
+  local catLabel = garage.CATEGORY_NAMES[spec.category] or "ROAD"
+  local catColor = spec.category == "race" and colors.kerb or colors.sectorGreen
+  if two then
+    ui.text("P" .. menu.driver .. " " .. catLabel, x, py + 7 * s, 7 * s, catColor, "right", w - 6 * s)
+  else
+    ui.text(catLabel, x, py + 7 * s, 7 * s, catColor, "right", w - 6 * s)
+  end
+  local measured = carStats.of(spec)
+  local maxKmh = measured.speed.value
+  local maxText = settings.units == "mph"
+    and string.format("MAX %.0f MPH", maxKmh * 0.621371)
+    or string.format("MAX %.0f KM/H", maxKmh)
+  ui.text(maxText .. "   " .. spec.drive, tx, py + 21 * s, 6 * s, colors.marshal)
+  ui.text(spec.blurb, tx, py + 33 * s, 5.5 * s, colors.muted, "left", w - 90 * s)
+  if withStats then drawCarStats(spec, x + 6 * s, py + 68 * s, w - 12 * s, s) end
 end
 
 -- Track leaderboard card used on the right panel (wide) or inside the board (narrow).
@@ -1438,8 +1492,64 @@ end
 
 local function drawCredits(sw, sh, s, w)
   ui.text("Created by VANILLAIICE", 14 * s, 76 * s, 6 * s, colors.paint)
-  ui.text("Font: Press Start 2P by CodeMan38", 14 * s, 92 * s, 6 * s, colors.muted, "left", w - 28 * s)
-  ui.text("Built with LOVE", 14 * s, 118 * s, 6 * s, colors.muted)
+  ui.text("Version edited by XOROZ", 14 * s, 94 * s, 6.5 * s, colors.marshal)
+  ui.text("Font: Press Start 2P by CodeMan38", 14 * s, 114 * s, 6 * s, colors.muted, "left", w - 28 * s)
+  ui.text("Built with LOVE", 14 * s, 140 * s, 6 * s, colors.muted)
+end
+
+local changelogCache
+local function loadChangelogLines()
+  if changelogCache then return changelogCache end
+  local raw = love.filesystem.read("CHANGELOG.md") or "CHANGELOG.md not found."
+  local out = {}
+  for line in (raw .. "\n"):gmatch("(.-)\n") do
+    local clean = line:gsub("^#+%s*", ""):gsub("%*%*(.-)%*%*", "%1"):gsub("`([^`]+)`", "%1")
+    out[#out + 1] = {
+      text = clean,
+      heading = line:match("^##+") ~= nil,
+      title = line:match("^#%s") ~= nil,
+    }
+  end
+  changelogCache = out
+  return out
+end
+menu.loadChangelogLines = loadChangelogLines
+
+local function drawChangelog(sw, sh, s, w)
+  local lines = loadChangelogLines()
+  local x, y = 14 * s, 72 * s
+  local boxW = sw - 28 * s
+  local boxH = sh - y - 44 * s
+  ui.panel(x - 6 * s, y - 6 * s, boxW + 12 * s, boxH + 10 * s, 0.92)
+  local fontSize = 5.5 * s
+  local font = ui.font(fontSize)
+  local lineH = font:getHeight() * font:getLineHeight()
+  local wrapped = {}
+  for _, entry in ipairs(lines) do
+    if entry.text == "" then
+      wrapped[#wrapped + 1] = { text = "", color = colors.muted }
+    else
+      local _, parts = font:getWrap(entry.text, boxW - 8 * s)
+      local col = entry.title and colors.kerb or (entry.heading and colors.marshal or colors.paint)
+      for _, part in ipairs(parts) do
+        wrapped[#wrapped + 1] = { text = part, color = col }
+      end
+    end
+  end
+  local visible = math.max(4, math.floor(boxH / lineH))
+  local maxScroll = math.max(1, #wrapped - visible + 1)
+  local scroll = math.max(1, math.min(maxScroll, menu.changelogScroll or 1))
+  if ui.nav.up then scroll = math.max(1, scroll - 3) end
+  if ui.nav.down then scroll = math.min(maxScroll, scroll + 3) end
+  menu.changelogScroll = scroll
+  for i = 0, visible - 1 do
+    local item = wrapped[scroll + i]
+    if not item then break end
+    if item.text ~= "" then
+      ui.text(item.text, x, y + i * lineH, fontSize, item.color)
+    end
+  end
+  ui.text(string.format("UP/DOWN SCROLL  %d/%d", scroll, maxScroll), x, y + boxH + 6 * s, 5 * s, colors.muted)
 end
 
 -- Where a screen's list sits, and how tall its rows are. Standard rows are about
@@ -1468,7 +1578,7 @@ function drawScreen(sw, sh)
 
   local titles = {
     setup = MODES[settings.mode], settings = "SETTINGS", online = "ONLINE", host = "HOST A ROOM", profile = "PROFILE",
-    records = "RECORDS", controls = "CONTROLS", buttons = "BUTTON LIST", credits = "CREDITS", keys = "KEYBOARD", pad = "PAD",
+    records = "RECORDS", controls = "CONTROLS", buttons = "BUTTON LIST", changelog = "CHANGELOG", credits = "CREDITS", keys = "KEYBOARD", pad = "PAD",
   }
   local title, titleColor = titles[menu.screen], nil
   if menu.screen == "keys" or menu.screen == "pad" then
@@ -1569,6 +1679,7 @@ function drawScreen(sw, sh)
     local back = menu.screen == "buttons" and "controls" or "main"
     local rows = { { label = "BACK", activate = function() menu.go(back) end } }
     if menu.screen == "buttons" then drawButtonList(sw, sh, s, w)
+    elseif menu.screen == "changelog" then drawChangelog(sw, sh, s, w)
     else drawCredits(sw, sh, s, w) end
     ui.list(menu.screen, rows, x, sh - 34 * s, listW, 15 * s, size, s)
   end

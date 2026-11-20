@@ -111,7 +111,7 @@ clean:
 # Tests stay out of the build.
 zip:
 	mkdir -p dist/
-	zip -9 -r dist/${name}-${ver}.love main.lua conf.lua LICENSE assets src
+	zip -9 -r dist/${name}-${ver}.love main.lua conf.lua LICENSE CHANGELOG.md assets src
 
 # The phone build. See android/apk.sh for what it needs; F-Droid builds its own
 # from source (android/fdroid.yml).

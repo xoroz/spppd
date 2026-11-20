@@ -29,6 +29,7 @@ local ROAD_SHADER = [[
   varying vec2 v_edge;
   varying float v_s;
   varying vec2 v_kerb;
+  varying float v_line;
   uniform highp vec3 roadColor;
   uniform highp float trackLength;
   uniform highp vec3 kerbA;
@@ -39,10 +40,12 @@ local ROAD_SHADER = [[
   #ifdef VERTEX
   attribute vec2 Edge;
   attribute vec2 KerbFlags;
+  attribute float LineDist;
   vec4 position(mat4 transform_projection, vec4 vertex_position) {
     v_edge = Edge;
     v_s = VertexTexCoord.x;
     v_kerb = KerbFlags;
+    v_line = LineDist;
     return transform_projection * vertex_position;
   }
   #endif
@@ -72,6 +75,10 @@ local ROAD_SHADER = [[
     // Bands across the road strobe past and show how fast you are going.
     float band = mod(v_s, 10.0 * M) < 5.0 * M ? 1.0 : 0.0;
     vec3 c = roadColor * (1.0 + band * 0.1);
+
+    // Rubbered-in racing line: visibly darker groove where grip is much higher.
+    float rubber = 1.0 - smoothstep(1.9 * M, 3.0 * M, abs(v_line));
+    c = mix(c, c * 0.70, rubber);
 
     float dash = mod(v_s, 12.0 * M) < 5.0 * M ? 1.0 : 0.0;
     if (abs(dL - dR) < 10.0) c = mix(c, PAINT, dash * 0.8);
@@ -153,6 +160,7 @@ local ROAD_FORMAT = {
   { "VertexTexCoord", "float", 2 },
   { "Edge", "float", 2 },
   { "KerbFlags", "float", 2 },
+  { "LineDist", "float", 1 },
 }
 
 local function buildRoad(track)
@@ -162,8 +170,9 @@ local function buildRoad(track)
     local ex, ey = (s.rx - s.lx) / s.w, (s.ry - s.ly) / s.w
     local kl, kr = s.kerbL and 1 or 0, s.kerbR and 1 or 0
     local w = s.w
+    local lineOff = s.lineOffset or (w * 0.5)
     local function add(x, y, dL, dR)
-      verts[#verts + 1] = { x, y, along, 0, dL, dR, kl, kr }
+      verts[#verts + 1] = { x, y, along, 0, dL, dR, kl, kr, dL - lineOff }
     end
     add(s.lx - ex * KERB, s.ly - ey * KERB, -KERB, w + KERB)
     add(s.lx, s.ly, 0, w)
@@ -520,6 +529,7 @@ function renderer.load(track, timeName, trackName)
   self.boards = boards.build(boardList, trackName, track.title, self.env, addRect, rectMesh)
   self.batches, self.boxes = buildScenery(track, self.theme, rng, boardList)
   self.gridBoxes = buildGridBoxes(track)
+  self.brakeMarkers = track:brakeMarkers()
   self.boxMesh = buildBoxes(self.boxes, self.env)
   self.standMesh = buildStand(grandstandSpot(track), self.env, track.country)
 
@@ -738,6 +748,33 @@ function renderer:drawGround()
   love.graphics.setShader()
 
   love.graphics.draw(self.gridBoxes)
+
+  -- Brake reference markers (3 = 300m, 2 = 200m, 1 = 100m) painted along the track edge.
+  if self.brakeMarkers and #self.brakeMarkers > 0 then
+    local ui = require("src/ui")
+    local font = ui.font(26)
+    love.graphics.setFont(font)
+    local bw, bh = 3.2 * M, 3.2 * M
+    for _, bm in ipairs(self.brakeMarkers) do
+      -- White reference tick across the outer edge of the tarmac
+      love.graphics.setColor(0.98, 0.98, 0.95, 0.9)
+      love.graphics.setLineWidth(4)
+      love.graphics.line(bm.edgeX, bm.edgeY, bm.edgeX - bm.nx * bm.side * 2.2 * M, bm.edgeY - bm.ny * bm.side * 2.2 * M)
+      -- High-contrast numbered board right beside the track edge
+      love.graphics.push()
+      love.graphics.translate(bm.x, bm.y)
+      love.graphics.setColor(0, 0, 0, 0.45)
+      love.graphics.rectangle("fill", -bw / 2 + 4, -bh / 2 + 4, bw, bh, 4)
+      love.graphics.setColor(0.10, 0.11, 0.15, 1)
+      love.graphics.rectangle("fill", -bw / 2 - 2, -bh / 2 - 2, bw + 4, bh + 4, 5)
+      local accent = bm.label == "1" and { 0.96, 0.22, 0.18 } or (bm.label == "2" and { 0.98, 0.78, 0.12 } or { 0.96, 0.96, 0.94 })
+      love.graphics.setColor(accent)
+      love.graphics.rectangle("fill", -bw / 2, -bh / 2, bw, bh, 4)
+      love.graphics.setColor(0.06, 0.06, 0.09, 1)
+      love.graphics.printf(bm.label, -bw / 2, -font:getHeight() / 2 + 2, bw, "center")
+      love.graphics.pop()
+    end
+  end
 
   love.graphics.setColor(1, 1, 1, self.env.shadowAlpha * 0.9)
   love.graphics.draw(self.barrierShadowL)

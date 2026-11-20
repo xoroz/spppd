@@ -4,6 +4,7 @@ local config = require("src/config")
 local base = {}
 
 local DEFAULTS = {
+  category = "road",    -- "road" | "race"
   -- Chassis
   mass = 1400,
   weightFront = 0.52,   -- share of the weight on the front axle

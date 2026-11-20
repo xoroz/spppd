@@ -95,7 +95,7 @@ local function steps()
   step(2, function() press("return") end)
   step(3, function()
     expect(menu.screen == "setup", "enter opens race setup")
-    settings.track = "harbour"
+    settings.track = "imola"
     settings.car = 1
     settings.opponents = 3
     settings.laps = 1
@@ -114,7 +114,7 @@ local function steps()
   step(3, function()
     expect(state.screen == "race", "START begins the race")
     expect(rm.race().phase == "countdown", "the race opens on the lights")
-    expect(rm.race().track == menu.cachedTrack(catalog.find("harbour")).track, "on the track the menu built")
+    expect(rm.race().track == menu.cachedTrack(catalog.find("imola")).track, "on the track the menu built")
     love.keypressed("w", "w", false)
     expect(#rm.race().cars == 4, "three opponents on the grid")
   end)
@@ -467,7 +467,7 @@ local function steps()
   step(3, function()
     expect(not radio.isPlaying(), "RADIO OFF keeps freestyle quiet")
     rm.stop()
-    settings.freestyleTrack = "mirage"
+    settings.freestyleTrack = "mugello"
     menu.startRace()
   end)
   step(3, function()

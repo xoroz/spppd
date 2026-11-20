@@ -90,9 +90,21 @@ h.describe("track", function()
       local t = Track.new(entry.def)
       for i = 1, t.count, 7 do
         local s = t.samples[i]
-        h.assertEq((t:surfaceAt(s.x, s.y, i)), "asphalt", "centre at " .. i)
+        local mid = t:surfaceAt(s.x, s.y, i)
+        h.assertTrue(mid == "asphalt" or mid == "rubber", "centre at " .. i .. ": " .. tostring(mid))
+        local onLine = t:surfaceAt(s.lineX, s.lineY, i)
+        h.assertEq(onLine, "rubber", "racing line is rubber at " .. i)
         local out = t:surfaceAt(s.rx + s.nx * 6 * M, s.ry + s.ny * 6 * M, i)
-        h.assertTrue(out == "grass" or out == "gravel" or out == "asphalt", "outside at " .. i)
+        h.assertTrue(out == "grass" or out == "gravel" or out == "asphalt" or out == "rubber", "outside at " .. i)
+      end
+    end)
+
+    h.it(entry.name .. " places 3-2-1 brake reference markers", function()
+      local t = Track.new(entry.def)
+      local markers = t:brakeMarkers()
+      h.assertTrue(#markers >= 1, entry.name .. " has brake markers")
+      for _, bm in ipairs(markers) do
+        h.assertTrue(bm.label == "1" or bm.label == "2" or bm.label == "3", "valid label " .. tostring(bm.label))
       end
     end)
 
@@ -113,21 +125,11 @@ h.describe("track", function()
     end)
   end
 
-  -- MIRAGE replaced a hand-traced track whose fences folded at nearly every corner.
-  -- Some other tracks still have a few sharp bends, so this only holds MIRAGE to it.
-  h.it("mirage fences have no sharp bends", function()
-    local t = Track.new(catalog.find("mirage").def)
-    for side, wall in pairs({ left = t.barrierL, right = t.barrierR }) do
-      local n = #wall
-      for i = 1, n do
-        local p, q, r = wall[(i - 2) % n + 1], wall[i], wall[i % n + 1]
-        local ax, ay, bx, by = q.x - p.x, q.y - p.y, r.x - q.x, r.y - q.y
-        local la, lb = math.sqrt(ax * ax + ay * ay), math.sqrt(bx * bx + by * by)
-        if la > 0.01 and lb > 0.01 then
-          local turn = math.deg(math.acos(math.max(-1, math.min(1, (ax * bx + ay * by) / (la * lb)))))
-          h.assertTrue(turn < 25, string.format("%s fence bends %.0f degrees at point %d", side, turn, i))
-        end
-      end
+  h.it("catalog keeps only the 9 real circuits with country refs", function()
+    local list = catalog.builtin()
+    h.assertEq(#list, 9, "9 real circuits")
+    for _, entry in ipairs(list) do
+      h.assertTrue(entry.country ~= nil and #entry.country == 2, entry.name .. " has country code")
     end
   end)
 

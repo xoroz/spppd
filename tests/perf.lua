@@ -29,20 +29,20 @@ local perf = {}
 local WARMUP, SAMPLE = 4, 12  -- seconds
 
 local CASES = {
-  { name = "mirage-day-low", track = "mirage", time = "day", quality = "low" },
+  { name = "mugello-day-low", track = "mugello", time = "day", quality = "low" },
   { name = "harbour-night-low", track = "harbour", time = "night", quality = "low" },
   { name = "harbour-midnight-low", track = "harbour", time = "midnight", quality = "low" },
-  { name = "mirage-day-high", track = "mirage", time = "day", quality = "high" },
+  { name = "mugello-day-high", track = "mugello", time = "day", quality = "high" },
   { name = "highlands-dusk-high", track = "highlands", time = "dusk", quality = "high" },
   { name = "harbour-night-high", track = "harbour", time = "night", quality = "high" },
   { name = "harbour-midnight-high", track = "harbour", time = "midnight", quality = "high" },
-  { name = "mirage-midnight-boost-high", track = "mirage", time = "midnight", quality = "high", boost = true },
+  { name = "mugello-midnight-boost-high", track = "mugello", time = "midnight", quality = "high", boost = true },
   -- The worst of it: speed blur, the warp and a full minute for a phone to heat up.
-  { name = "mirage-night-boost-high", track = "mirage", time = "night", quality = "high", boost = true, sample = 60 },
+  { name = "mugello-night-boost-high", track = "mugello", time = "night", quality = "high", boost = true, sample = 60 },
   -- Freestyle's lot: lapping the slalom, through the cones.
   { name = "lot-night-high", lot = true, time = "night", quality = "high" },
   -- Two at one screen: the same race drawn twice, a half each.
-  { name = "split-mirage-day-high", track = "mirage", time = "day", quality = "high", split = true },
+  { name = "split-mugello-day-high", track = "mugello", time = "day", quality = "high", split = true },
   { name = "split-harbour-night-high", track = "harbour", time = "night", quality = "high", split = true },
 }
 

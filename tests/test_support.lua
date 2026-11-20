@@ -166,29 +166,29 @@ h.describe("settings", function()
     settings.centralFile = "/nonexistent/unavailable/spppd-central-records.lua"
     settings.load()
     local g = { 10, 20, 0.5, 12, 22, 0.6 }
-    settings.submitLap("mirage", "rocket", 45.0, g, "open", { hue = 2, name = "P1" })
-    settings.submitLap("mirage", "cyber", 41.0, g, "open", { hue = 3, name = "P2" })
-    settings.submitLap("mirage", "wedge", 43.0, g, "open", { hue = 4, name = "P1" })
-    settings.submitLap("mirage", "samurai", 42.0, g, "open", { hue = 5, name = "P2" })
-    settings.submitLap("mirage", "hot_hatch", 44.0, g, "open", { hue = 1, name = "P1" })
-    settings.submitLap("mirage", "big_bull", 46.0, g, "open", { hue = 6, name = "P2" })
-    local top = settings.topGhosts("mirage")
+    settings.submitLap("mugello", "rocket", 45.0, g, "open", { hue = 2, name = "P1" })
+    settings.submitLap("mugello", "formula_1_1988", 41.0, g, "open", { hue = 3, name = "P2" })
+    settings.submitLap("mugello", "pursa_gt3", 43.0, g, "open", { hue = 4, name = "P1" })
+    settings.submitLap("mugello", "formula_kid", 42.0, g, "open", { hue = 5, name = "P2" })
+    settings.submitLap("mugello", "hot_hatch", 44.0, g, "open", { hue = 1, name = "P1" })
+    settings.submitLap("mugello", "paname", 46.0, g, "open", { hue = 6, name = "P2" })
+    local top = settings.topGhosts("mugello")
     h.assertEq(#top, 5, "capped at top 5")
     h.assertEq(top[1].time, 41.0)
-    h.assertEq(top[1].car, "cyber")
+    h.assertEq(top[1].car, "formula_1_1988")
     h.assertEq(top[2].time, 42.0)
     h.assertEq(top[5].time, 45.0)
     -- Merge central sync payload (both central-sync.lua and native ?format=lua response)
-    love.filesystem.write("central-sync.lua", "return { mirage = { { time = 39.5, car = 'open_wheeler', hue = 7, name = 'CENTRAL', rules = 'open', ghost = { 1, 2, 0, 3, 4, 0 } } } }\n")
-    top = settings.topGhosts("mirage")
+    love.filesystem.write("central-sync.lua", "return { mugello = { { time = 39.5, car = 'formula_1_1988', hue = 7, name = 'CENTRAL', rules = 'open', ghost = { 1, 2, 0, 3, 4, 0 } } } }\n")
+    top = settings.topGhosts("mugello")
     h.assertEq(#top, 5)
     h.assertEq(top[1].time, 39.5)
-    h.assertEq(top[1].car, "open_wheeler")
-    local nativeLua = 'return {\n  ["mirage"] = {\n    [1] = { ["time"] = 38.2500, ["car"] = "rocket", ["hue"] = 2, ["name"] = "DESKTOP", ["rules"] = "open", ["ghost"] = { 5, 6, 0, 7, 8, 0 } },\n  },\n}\n'
+    h.assertEq(top[1].car, "formula_1_1988")
+    local nativeLua = 'return {\n  ["mugello"] = {\n    [1] = { ["time"] = 38.2500, ["car"] = "rocket", ["hue"] = 2, ["name"] = "DESKTOP", ["rules"] = "open", ["ghost"] = { 5, 6, 0, 7, 8, 0 } },\n  },\n}\n'
     local parsed = settings.parseCentralLua(nativeLua)
     h.assertTrue(type(parsed) == "table", "native desktop ?format=lua response parses cleanly")
     settings.mergeCentral(parsed)
-    top = settings.topGhosts("mirage")
+    top = settings.topGhosts("mugello")
     h.assertEq(top[1].time, 38.25)
     h.assertEq(top[1].name, "DESKTOP")
     settings.centralFile = nil
@@ -200,8 +200,9 @@ h.describe("settings", function()
     local rm = require("src/race_manager")
     love.filesystem.remove("records.lua")
     settings.load()
-    settings.track = "mirage"
+    settings.track = "mugello"
     settings.mode = "race"
+    settings.selectedGhost = 1
     menu.go("setup")
     local function findRow(rows, label)
       for _, r in ipairs(rows) do
@@ -212,17 +213,17 @@ h.describe("settings", function()
     local ghostRow = findRow(menu.setupRows(), "LOAD GHOST")
     h.assertTrue(ghostRow ~= nil, "LOAD GHOST row present")
     h.assertTrue(ghostRow.disabled == true, "grayed out when no ghosts exist")
-    h.assertEq(ghostRow.value, "NONE")
+    h.assertEq(ghostRow.value, "ON (NONE YET)")
 
-    -- Add two ghosts and check that LOAD GHOST is enabled and its dropdown opens
+    -- Add two ghosts and check that LOAD GHOST is enabled and defaults to #1
     local frames1 = { 100, 200, 0.1, 110, 210, 0.2 }
     local frames2 = { 120, 220, 0.3, 130, 230, 0.4 }
-    settings.submitLap("mirage", "rocket", 40.5, frames1, "open", { hue = 2, name = "P1" })
-    settings.submitLap("mirage", "cyber", 42.0, frames2, "open", { hue = 4, name = "P2" })
+    settings.submitLap("mugello", "rocket", 40.5, frames1, "open", { hue = 2, name = "P1" })
+    settings.submitLap("mugello", "formula_1_1988", 42.0, frames2, "open", { hue = 4, name = "P2" })
 
     ghostRow = findRow(menu.setupRows(), "LOAD GHOST")
     h.assertTrue(not ghostRow.disabled, "enabled when ghosts exist")
-    h.assertEq(ghostRow.value(), "OFF")
+    h.assertTrue(ghostRow.value():find("#1", 1, true) ~= nil, "defaults to ghost #1 when ON")
 
     -- Open dropdown and pick #2
     ghostRow.activate()
@@ -240,7 +241,7 @@ h.describe("settings", function()
     -- Start race and verify ghost is loaded in race mode
     menu.startRace()
     h.assertTrue(rm.ghost() ~= nil and #rm.ghost() == 6, "ghost loaded in race mode")
-    h.assertEq(rm.ghostCar().spec.id, "cyber", "ghost uses recorded car spec")
+    h.assertEq(rm.ghostCar().spec.id, "formula_1_1988", "ghost uses recorded car spec")
     rm.stop()
 
     -- Also verify in trial mode
@@ -251,7 +252,7 @@ h.describe("settings", function()
     h.assertEq(rm.ghostCar().spec.id, "rocket")
     rm.stop()
 
-    settings.selectedGhost = 0
+    settings.selectedGhost = 1
     love.filesystem.remove("records.lua")
   end)
 
@@ -259,7 +260,7 @@ h.describe("settings", function()
     local rm = require("src/race_manager")
     love.filesystem.remove("records.lua")
     settings.load()
-    local entry = catalog.find("mirage")
+    local entry = catalog.find("mugello")
     rm.start({
       mode = "race",
       entry = entry,
@@ -279,7 +280,7 @@ h.describe("settings", function()
     player.lapStart = 0
     player.lapsDone = 1
     rm.onLap(player, 38.0, true)
-    h.assertEq(#settings.topGhosts("mirage"), 0, "not saved mid-race before race finishes")
+    h.assertEq(#settings.topGhosts("mugello"), 0, "not saved mid-race before race finishes")
 
     -- Record some frames and finish Lap 2 at 44.0s (slower final lap)
     rm.update(0.2)
@@ -292,7 +293,7 @@ h.describe("settings", function()
     rm.update(0.05) -- triggers updateFinish -> rm.commitRecords()
 
     h.assertTrue(rm.isFinished(), "race finished")
-    local top = settings.topGhosts("mirage")
+    local top = settings.topGhosts("mugello")
     h.assertEq(#top, 1, "saved after race end")
     h.assertEq(top[1].time, 38.0, "saved the faster Lap 1 time, not slower Lap 2")
     rm.stop()
@@ -502,7 +503,7 @@ h.describe("midnight", function()
 
   h.it("studs run down both edges of the road, on the road", function()
     local Track = require("src/sim/track")
-    local track = Track.new(catalog.find("mirage").def)
+    local track = Track.new(catalog.find("mugello").def)
     local spots = renderer.studSpots(track)
     h.assertTrue(#spots > 100, "a whole lap of them")
     local left, right = 0, 0
@@ -601,7 +602,7 @@ h.describe("audio", function()
 
   h.it("the single turbo and the pair are different whistles", function()
     h.assertEq(garage.byId("hot_hatch").turbos, 1)
-    h.assertEq(garage.byId("big_bull").turbos, 2)
+    h.assertEq(garage.byId("paname").turbos, 2)
     local one, two = audio.turboData(1), audio.turboData(2)
     local same = 0
     for i = 0, one:getSampleCount() - 1 do
@@ -786,8 +787,8 @@ h.describe("audio", function()
     h.assertTrue(race.rpms[3] >= 12000, "it has to reach the revs")
     h.assertTrue(race.noise < road.noise and race.drive < road.drive, "smooth")
     h.assertTrue(race.pipeScale > road.pipeScale, "short pipes")
-    h.assertEq(audio.voiceOf(garage.byId("open_wheeler")).key, "6race")
-    h.assertEq(garage.byId("open_wheeler").cylinders, 6)
+    h.assertEq(audio.voiceOf(garage.byId("formula_1_1988")).key, "6race")
+    h.assertEq(garage.byId("formula_1_1988").cylinders, 6)
   end)
 
   h.it("the horn loops, and is loud enough to cut through", function()
@@ -801,8 +802,8 @@ h.describe("audio", function()
   end)
 
   h.it("a heavy car's horn is lower than a light one's", function()
-    local low = audio.hornPitch(garage.byId("baja_beast"))
-    local high = audio.hornPitch(garage.byId("tofu_runner"))
+    local low = audio.hornPitch(garage.byId("paname"))
+    local high = audio.hornPitch(garage.byId("formula_1_1988"))
     h.assertTrue(low < 1 and high > 1 and low < high)
     h.assertBetween(low, 0.7, 1.25)
     h.assertBetween(high, 0.7, 1.25)
@@ -874,13 +875,11 @@ h.describe("audio", function()
     local kinds = {}
     for _, spec in ipairs(garage) do kinds[spec.id] = audio.boostKind(spec) end
     h.assertEq(kinds.hot_hatch, "turbo")
-    h.assertEq(kinds.quad_turbo, "turbo")
-    h.assertEq(kinds.muscle_monster, "blower")
-    h.assertEq(kinds.baja_beast, "blower")
-    h.assertEq(kinds.cyber, "motor")
-    for _, id in ipairs({ "wedge", "tofu_runner", "samurai" }) do
-      h.assertEq(kinds[id], "gas", id .. " has nothing else to drive")
-    end
+    h.assertEq(kinds.rocket, "turbo")
+    h.assertEq(kinds.paname, "turbo")
+    h.assertEq(kinds.formula_kid, "turbo")
+    h.assertEq(kinds.formula_1_1988, "turbo")
+    h.assertEq(kinds.pursa_gt3, "gas", "pursa_gt3 is naturally aspirated")
     for _, spec in ipairs(garage) do
       if kinds[spec.id] == "gas" then h.assertEq(audio.boostPitch(spec, 1), 1, spec.id .. " has nothing to climb") end
     end
@@ -896,11 +895,9 @@ h.describe("audio", function()
       h.assertTrue(during <= 1, id .. " can't go past full volume")
       return during
     end
-    local one, two, four = lift("hot_hatch", "turbo"), lift("rocket", "turbo"), lift("quad_turbo", "turbo")
-    h.assertTrue(one < two and two < four, "more turbos are louder")
-    lift("muscle_monster", "blower")
-    lift("cyber", "motor")
-    h.assertEq(audio.engineMix(spec("wedge"), 0.9, 1, 1, 1).turbo, 0, "no turbo to drive")
+    local one, two = lift("hot_hatch", "turbo"), lift("rocket", "turbo")
+    h.assertTrue(one < two, "more turbos are louder")
+    h.assertEq(audio.engineMix(spec("pursa_gt3"), 0.9, 1, 1, 1).turbo, 0, "no turbo to drive")
     h.assertEq(audio.engineMix(spec("rocket"), 0.9, 1, 0.2, 0).turbo, audio.engineMix(spec("rocket"), 0.9, 1, 0.2).turbo,
       "nothing changes without boost")
   end)
@@ -910,10 +907,8 @@ h.describe("audio", function()
     local garage = require("src/entities/garage")
     local function layer(id, boost) return audio.engineMix(garage.byId(id), 0.9, 1, 1, boost).turboBoost end
     h.assertEq(layer("rocket", 0), 0, "silent without boost")
-    h.assertTrue(layer("hot_hatch", 1) < layer("rocket", 1) and layer("rocket", 1) < layer("quad_turbo", 1), "more turbos are bigger")
-    for _, id in ipairs({ "wedge", "muscle_monster", "cyber" }) do
-      h.assertEq(layer(id, 1), 0, id .. " has no turbo")
-    end
+    h.assertTrue(layer("hot_hatch", 1) < layer("rocket", 1), "more turbos are bigger")
+    h.assertEq(layer("pursa_gt3", 1), 0, "pursa_gt3 has no turbo")
     for _, turbos in ipairs({ 1, 2, 4 }) do
       local data = audio.turboBoostData(turbos)
       local rms, peak, count = 0, 0, data:getSampleCount()
@@ -1124,8 +1119,8 @@ h.describe("audio", function()
   end)
 
   h.it("a heavy car's crash is lower than a light one's", function()
-    local low = audio.impactPitch(garage.byId("baja_beast"))
-    local high = audio.impactPitch(garage.byId("open_wheeler"))
+    local low = audio.impactPitch(garage.byId("paname"))
+    local high = audio.impactPitch(garage.byId("formula_1_1988"))
     h.assertTrue(low < 1 and high > 1)
     h.assertBetween(low, 0.85, 1.15)
     h.assertBetween(high, 0.85, 1.15)

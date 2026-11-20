@@ -142,7 +142,7 @@ local function wheelFx(car, wheel, trail, speed)
       skids.lift(trail)
       if burning then vfx.dust(x, y, vx, vy, 0.6) end
     end
-  elseif grip > 0.32 and surface == "asphalt" and (speed > 1.5 or burning) then
+  elseif grip > 0.32 and (surface == "asphalt" or surface == "rubber") and (speed > 1.5 or burning) then
     if moving then
       skids.add(trail, x, y, nx, ny, math.min(0.62, 0.18 + grip * 0.5), 0.03, 0.03, 0.035)
     else

@@ -82,6 +82,7 @@ local CREEP_SPEED, CREEP_PUSH = 1.5, 1.5  -- AWD's crawl (m/s) and how hard it g
 local ASPHALT_ROLL = 0.014
 
 dynamics.SURFACES = {
+  rubber  = { grip = 1.18, roll = ASPHALT_ROLL, drag = 0.0 },
   asphalt = { grip = 1.00, roll = ASPHALT_ROLL, drag = 0.0 },
   kerb    = { grip = 0.90, roll = 0.020, drag = 0.0 },
   grass   = { grip = 0.48, roll = 0.070, drag = 0.022, loose = true },

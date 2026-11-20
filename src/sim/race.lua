@@ -157,8 +157,9 @@ end
 
 function Race:spawnOpponents(opts, playerSlot)
   local diff = Race.DIFFICULTY[opts.difficulty or "pro"] or Race.DIFFICULTY.pro
+  local pool = opts.mixCategories and garage or garage.byCategory(self.player.spec.category)
   for i = 1, opts.opponents or 0 do
-    local spec = garage[(i + (self.seed % #garage)) % #garage + 1]
+    local spec = pool[(i + (self.seed % #pool)) % #pool + 1]
     local grid = playerSlot - i
     local x, y, angle, index = self.track:gridSlot(grid)
     local car = Car.new(spec, x, y, angle, {

@@ -5,7 +5,6 @@ local wire = require("src/tracks/wire")
 local catalog = {}
 
 local BUILTIN = {
-  "mirage", "highlands", "harbour", "boat", "speedway", "temple", "riviera", "ardennes", "touge", "oasis",
   "mugello", "imola", "barcelona", "spielberg", "monza", "brands_hatch", "interlagos", "austin", "monaco",
 }
 local USER_DIR = "tracks"

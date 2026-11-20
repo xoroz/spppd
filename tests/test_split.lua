@@ -117,9 +117,9 @@ h.describe("two at one screen", function()
       assist = "sim", player2 = { spec = garage[5], name = "P2", assist = "arcade" } })
     local p1, p2 = race.players[1], race.players[2]
     local p1Model = p1.model
-    race:swapCar(p2, garage[8])
-    h.assertEq(p2.spec, garage[8])
-    h.assertEq(p2.model.assist, dynamics.new(garage[8], "arcade").assist, "P2 still on arcade")
+    race:swapCar(p2, garage[6])
+    h.assertEq(p2.spec, garage[6])
+    h.assertEq(p2.model.assist, dynamics.new(garage[6], "arcade").assist, "P2 still on arcade")
     h.assertEq(p1.spec, garage[3], "P1's car is P1's")
     h.assertEq(p1.model, p1Model)
     h.assertEq(race.cars[2], p2)
@@ -162,7 +162,7 @@ h.describe("two-player ghost records", function()
     local rm = require("src/race_manager")
     love.filesystem.remove("records.lua")
     settings.load()
-    local entry = catalog.find("mirage")
+    local entry = catalog.find("mugello")
     local a, b = fakePad(1), fakePad(2)
     local r1, r2 = input.splitReaders({ a, b })
     local seedGhost = { 10, 20, 0.1, 15, 25, 0.2, 20, 30, 0.3 }
@@ -190,7 +190,7 @@ h.describe("two-player ghost records", function()
     p1.lapsDone, p2.lapsDone = 1, 1
     rm.onLap(p1, 41.5, true)
     rm.onLap(p2, 39.2, true)
-    h.assertEq(#settings.topGhosts("mirage"), 0, "neither player's lap saved mid-race")
+    h.assertEq(#settings.topGhosts("mugello"), 0, "neither player's lap saved mid-race")
 
     -- P1 finishes Lap 2 at 43.0s, but P2 hasn't finished yet
     rm.update(0.2)
@@ -200,7 +200,7 @@ h.describe("two-player ghost records", function()
     race:onPlayerFinished(p1)
     rm.update(0.05)
     h.assertTrue(not rm.isFinished(), "waiting for P2 to finish")
-    h.assertEq(#settings.topGhosts("mirage"), 0, "still not saved until race ends for both players")
+    h.assertEq(#settings.topGhosts("mugello"), 0, "still not saved until race ends for both players")
 
     -- P2 finishes Lap 2 at 42.0s -> race ends for both!
     p2.lapsDone = 2
@@ -210,7 +210,7 @@ h.describe("two-player ghost records", function()
     rm.update(0.05)
 
     h.assertTrue(rm.isFinished(), "2-player race finished")
-    local top = settings.topGhosts("mirage")
+    local top = settings.topGhosts("mugello")
     h.assertEq(#top, 2, "both P1 and P2 best laps saved after 2-player race end")
     h.assertEq(top[1].time, 39.2, "P2's faster Lap 1 is #1")
     h.assertEq(top[1].name, "P2")

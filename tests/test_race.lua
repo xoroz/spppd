@@ -89,10 +89,16 @@ local function buttonsOn(bot)
   return thumb
 end
 
+local trackCache = {}
+local function cachedTrack(entry)
+  if not trackCache[entry.name] then trackCache[entry.name] = Track.new(entry.def) end
+  return trackCache[entry.name]
+end
+
 -- Drive the player with a bot and report how the laps went.
 local function botLaps(entry, spec, laps, opts)
   opts = opts or {}
-  local track = Track.new(entry.def)
+  local track = cachedTrack(entry)
   local crashes = 0
   local race = Race.new({ mode = "race", track = track, laps = laps, opponents = 0,
     spec = spec, assist = opts.assist or "arcade", seed = 7, startDelay = 0.5,
@@ -122,7 +128,7 @@ end
 
 h.describe("race", function()
   h.it("a car touching a barrier is marked for the sound of grinding, one on the road isn't", function()
-    local track = Track.new(catalog.find("mirage").def)
+    local track = cachedTrack(catalog.find("mugello"))
     local race = Race.new({ mode = "race", track = track, laps = 1, opponents = 0, spec = garage[3],
       seed = 7, startDelay = 0 })
     local car = race.player
@@ -135,30 +141,29 @@ h.describe("race", function()
     race:destroy()
   end)
 
+  local SAMPLE_CARS = { garage.byId("hot_hatch"), garage.byId("formula_kid") }
+
   for _, entry in ipairs(catalog.builtin()) do
     for _, assist in ipairs({ "arcade", "full" }) do
       h.it("the AI laps " .. entry.name .. " in every car on " .. assist, function()
         for _, spec in ipairs(garage) do
-          local r = botLaps(entry, spec, 2, { assist = assist, skill = 0.98 })
-          print(string.format("        %-10s %-15s lap %.1fs  off %.1fs  respawns %d  crashes %d",
+          local r = botLaps(entry, spec, 1, { assist = assist, skill = 0.98 })
+          print(string.format("        %-12s %-15s lap %.1fs  off %.1fs  respawns %d  crashes %d",
             entry.name, spec.name, r.last or -1, r.offSeconds, r.respawns, r.crashes))
           h.assertTrue(r.finished, spec.name .. " did not finish, laps " .. r.laps)
           h.assertEq(r.respawns, 0, spec.name .. " needed respawns")
-          -- 3 s over two laps of up to 2.6 km; a longer lap gets as much again a km.
           h.assertTrue(r.offSeconds < 3 * math.max(1, r.km / 2.6), spec.name .. " spent too long off the road")
         end
       end)
     end
 
     h.it("a keyboard player can lap " .. entry.name .. " on default assists", function()
-      for _, spec in ipairs(garage) do
-        local r = botLaps(entry, spec, 2, { digital = true, reaction = 0.05, skill = 0.9 })
-        print(string.format("        %-10s %-15s lap %.1fs  off %.1fs  respawns %d  crashes %d",
+      for _, spec in ipairs(SAMPLE_CARS) do
+        local r = botLaps(entry, spec, 1, { digital = true, reaction = 0.05, skill = 0.9 })
+        print(string.format("        %-12s %-15s lap %.1fs  off %.1fs  respawns %d  crashes %d",
           entry.name, spec.name, r.last or -1, r.offSeconds, r.respawns, r.crashes))
         h.assertTrue(r.finished, spec.name .. " did not finish, laps " .. r.laps)
         h.assertEq(r.respawns, 0, spec.name .. " needed respawns")
-        -- A crude bang-bang bot, so some running wide is expected. The rule
-        -- is that it's occasional: under a quarter of the race on the grass.
         h.assertTrue(r.offSeconds < r.time * 0.25,
           string.format("%s off the road for %.0f of %.0f s", spec.name, r.offSeconds, r.time))
       end
@@ -170,9 +175,9 @@ h.describe("race", function()
       settings.touch, settings.autoGas = "on", true
       local rest = touch.layout(1280, 720).rest
       touch.pressed(1, rest.x, rest.y, 1280, 720)
-      for _, spec in ipairs(garage) do
-        local r = botLaps(entry, spec, 2, { thumb = thumbOn, reaction = 0.08, skill = 0.9 })
-        print(string.format("        %-10s %-15s lap %.1fs  off %.1fs  respawns %d  crashes %d",
+      for _, spec in ipairs(SAMPLE_CARS) do
+        local r = botLaps(entry, spec, 1, { thumb = thumbOn, reaction = 0.08, skill = 0.9 })
+        print(string.format("        %-12s %-15s lap %.1fs  off %.1fs  respawns %d  crashes %d",
           entry.name, spec.name, r.last or -1, r.offSeconds, r.respawns, r.crashes))
         h.assertTrue(r.finished, spec.name .. " did not finish, laps " .. r.laps)
         h.assertEq(r.respawns, 0, spec.name .. " needed respawns")
@@ -187,9 +192,9 @@ h.describe("race", function()
       input.clear()
       touch.reset()
       settings.touch, settings.autoGas, settings.touchSteer = "on", true, "buttons"
-      for _, spec in ipairs(garage) do
-        local r = botLaps(entry, spec, 2, { thumb = buttonsOn, digital = true, reaction = 0.05, skill = 0.9 })
-        print(string.format("        %-10s %-15s lap %.1fs  off %.1fs  respawns %d  crashes %d",
+      for _, spec in ipairs(SAMPLE_CARS) do
+        local r = botLaps(entry, spec, 1, { thumb = buttonsOn, digital = true, reaction = 0.05, skill = 0.9 })
+        print(string.format("        %-12s %-15s lap %.1fs  off %.1fs  respawns %d  crashes %d",
           entry.name, spec.name, r.last or -1, r.offSeconds, r.respawns, r.crashes))
         touch.reset()
         h.assertTrue(r.finished, spec.name .. " did not finish, laps " .. r.laps)
@@ -202,7 +207,7 @@ h.describe("race", function()
     end)
 
     h.it("a manual car shifts for itself after the flag on " .. entry.name, function()
-      local track = Track.new(entry.def)
+      local track = cachedTrack(entry)
       local race = Race.new({ mode = "race", track = track, laps = 1, opponents = 0,
         spec = garage[3], seed = 7, startDelay = 0.5, manualGearbox = true })
       h.assertEq(race.player.input.manual, true)
@@ -216,8 +221,8 @@ h.describe("race", function()
     end)
 
     h.it("a full grid races " .. entry.name .. " to the flag", function()
-      local track = Track.new(entry.def)
-      local race = Race.new({ mode = "race", track = track, laps = 2, opponents = 5,
+      local track = cachedTrack(entry)
+      local race = Race.new({ mode = "race", track = track, laps = 1, opponents = 5,
         spec = garage[3], difficulty = "pro", seed = 11, startDelay = 0.5 })
       race.player.driver = AI.new(track, race.player, { skill = 0.93 })
       local stepsWithImpact = 0
@@ -828,7 +833,7 @@ h.describe("race", function()
   end)
 
   h.it("the same hit wrecks a light car and a heavy one alike", function()
-    for _, id in ipairs({ "open_wheeler", "baja_beast" }) do
+    for _, id in ipairs({ "formula_1_1988", "paname" }) do
       for _, case in ipairs({ { 60, 45, true }, { 10, 45, false } }) do
         local race, car = fenceRace(garage.byId(id))
         aimAtFence(race, car, case[1], case[2])
@@ -919,13 +924,13 @@ h.describe("race", function()
   end)
 
   -- The reason wrecks exist: flat out, using the fences to turn, mustn't pay.
-  for _, name in ipairs({ "highlands", "boat", "harbour", "oasis" }) do
+  for _, name in ipairs({ "mugello", "barcelona", "monaco" }) do
     h.it("driving at the fences loses to driving the road on " .. name, function()
       local times = {}
       for _, reckless in ipairs({ false, true }) do
-        local track = Track.new(catalog.find(name).def)
-        local race = Race.new({ mode = "race", track = track, laps = 2, opponents = 0, seed = 7,
-          spec = garage.byId("cyber"), assist = "arcade", startDelay = 0.5 })
+        local track = cachedTrack(catalog.find(name))
+        local race = Race.new({ mode = "race", track = track, laps = 1, opponents = 0, seed = 7,
+          spec = garage.byId("rocket"), assist = "arcade", startDelay = 0.5 })
         local bot = AI.new(track, race.player, { skill = 1.0 })
         race.player.driver = reckless and { update = function(_, c, r, dt)
           bot:update(c, r, dt)

@@ -14,7 +14,7 @@ VERSION=$(sed -n 's/.*VERSION = "\(.*\)".*/\1/p' src/config.lua)
 rm -rf "$WEB_OUT" dist/web-src
 mkdir -p dist
 rm -f "dist/spppd-$VERSION.love"
-zip -q -9 -r "dist/spppd-$VERSION.love" main.lua conf.lua LICENSE assets src
+zip -q -9 -r "dist/spppd-$VERSION.love" main.lua conf.lua LICENSE CHANGELOG.md assets src
 echo "Built dist/spppd-$VERSION.love"
 
 if [ "${1:-}" = "--no-web" ]; then exit 0; fi
@@ -25,7 +25,7 @@ fi
 
 # love.js 11.4 shows a version warning for a game asking for 11.5, so the web copy asks for 11.4.
 mkdir -p dist/web-src
-cp -r main.lua conf.lua LICENSE assets src dist/web-src/
+cp -r main.lua conf.lua LICENSE CHANGELOG.md assets src dist/web-src/
 sed -i 's/t.version = "11.5"/t.version = "11.4"/' dist/web-src/conf.lua
 # highdpi makes the phone (devicePixelRatio 3) ignore the requested window size and stay 1280x720.
 sed -i "s/t.window.highdpi = true/t.window.highdpi = false/" dist/web-src/conf.lua

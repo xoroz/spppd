@@ -1,7 +1,7 @@
 # SPPPD on apps.texngo.it
 
-Browser copy of SPPPD (upstream game by vanillaiice, GPL-3) at https://apps.texngo.it/spppd/ — public, no login.
-These files only add a browser build; the game source is never edited here.
+Browser copy of SPPPD (upstream game by vanillaiice, GPL-3; **Version edited by XOROZ**) at https://apps.texngo.it/spppd/ — public, no login.
+See [XOROZ.md](../XOROZ.md) for the list of preserved XOROZ customizations (6 cars in ROAD/RACE categories, 9 real circuits, 3-2-1 brake markers, rubbered-in racing line, TOP camera, ghost default ON, player name, in-game changelog).
 
 - `build-web.sh` — runs the game's `build.sh` (love.js 11.4.1, `web/bridge.js` for window size, phone touch and
   clicks) into `dist/web.new`, then swaps it in for `dist/web/` when complete. The game itself handles the browser's

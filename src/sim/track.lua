@@ -14,6 +14,8 @@ Track.__index = Track
 local M = config.METER
 local SPACING = config.SAMPLE_SPACING * M
 local KERB_WIDTH = config.KERB_WIDTH * M
+local RUBBER_HALF_WIDTH = 2.6 * M
+Track.RUBBER_HALF_WIDTH = RUBBER_HALF_WIDTH
 
 local sqrt, abs, min, max, floor = math.sqrt, math.abs, math.min, math.max, math.floor
 
@@ -559,6 +561,9 @@ local function buildRacingLine(samples, marginMetres)
     l.k = k
     s.lineX, s.lineY = l.x, l.y
     s.lineK = k
+    -- Distance in world px from the left edge along the cross-track vector.
+    local ex, ey = (s.rx - s.lx) / s.w, (s.ry - s.ly) / s.w
+    s.lineOffset = (l.x - s.lx) * ex + (l.y - s.ly) * ey
   end
   for _ = 1, 2 do
     local nextK = {}
@@ -684,9 +689,15 @@ function Track:locate(x, y, hint, window)
 end
 
 function Track:surfaceAt(x, y, hint, window)
-  local i, _, _, off, side = self:locate(x, y, hint, window)
-  if off <= 0 then return "asphalt", i end
+  local i, _, lateral, off, side = self:locate(x, y, hint, window)
   local s = self.samples[i]
+  if off <= 0 then
+    local fromLeft = lateral + s.w * 0.5
+    if s.lineOffset and abs(fromLeft - s.lineOffset) <= RUBBER_HALF_WIDTH then
+      return "rubber", i
+    end
+    return "asphalt", i
+  end
   if off <= KERB_WIDTH and (side == "l" and s.kerbL or side == "r" and s.kerbR) then
     return "kerb", i
   end
@@ -795,6 +806,81 @@ function Track:corners()
   table.sort(list, function(p, q) return p.first < q.first end)
   self.cornerList, self.cornerAt = list, at
   return list, at
+end
+
+-- Brake distance markers (300 m = "3", 200 m = "2", 100 m = "1") placed on the
+-- outside edge of the track approaching every significant braking corner.
+local BRAKE_DISTANCES = {
+  { meters = 300, label = "3" },
+  { meters = 200, label = "2" },
+  { meters = 100, label = "1" },
+}
+
+function Track:brakeMarkers()
+  if self.brakeMarkerList then return self.brakeMarkerList end
+  local corners = self:corners()
+  local samples, n = self.samples, self.count
+  local stepM = (self.length / n) / M
+  local profile = self:speedProfile({ mu = 1.35, vmax = 92, brake = 1.35 * config.GRAVITY * 0.85, accel = 9 })
+  local markers = {}
+  local straightLimit = 1 / (85 * M)
+
+  for _, corner in ipairs(corners) do
+    local first = corner.first
+    -- Find the minimum speed inside this corner and the approach speed before it.
+    local minV = math.huge
+    local span = (corner.last - first) % n
+    for off = 0, span do
+      local v = profile[wrap(first + off, n)]
+      if v < minV then minV = v end
+    end
+    local approachSteps = max(4, floor(140 / stepM))
+    local approachV = profile[wrap(first - approachSteps, n)]
+    if corner.degrees >= 40 and (approachV - minV) >= 8 then
+      -- Outside of the corner: left (-1) when turning right (+1), right (+1) when turning left (-1).
+      local side = corner.direction > 0 and -1 or 1
+      for _, b in ipairs(BRAKE_DISTANCES) do
+        local back = floor(b.meters / stepM + 0.5)
+        if back > 2 and back < n * 0.45 then
+          -- Only place a marker if the approach from that distance isn't inside another sharp corner.
+          local clear = true
+          for step = 4, back do
+            if abs(samples[wrap(first - step, n)].lineK) > straightLimit then
+              clear = false
+              break
+            end
+          end
+          if clear then
+            local idx = wrap(first - back, n)
+            local s = samples[idx]
+            local edgeX = side < 0 and s.lx or s.rx
+            local edgeY = side < 0 and s.ly or s.ry
+            local inset = min(s["barrier" .. (side < 0 and "l" or "r")] * 0.45, 2.8 * M)
+            local bx = edgeX + s.nx * side * (KERB_WIDTH + inset)
+            local by = edgeY + s.ny * side * (KERB_WIDTH + inset)
+            markers[#markers + 1] = {
+              label = b.label,
+              meters = b.meters,
+              x = bx,
+              y = by,
+              edgeX = edgeX,
+              edgeY = edgeY,
+              nx = s.nx,
+              ny = s.ny,
+              tx = s.tx,
+              ty = s.ty,
+              angle = math.atan2(s.ty, s.tx),
+              side = side,
+              sample = idx,
+            }
+          end
+        end
+      end
+    end
+  end
+
+  self.brakeMarkerList = markers
+  return markers
 end
 
 -- Quality checks shown in the editor; `issues` is empty for a clean track.

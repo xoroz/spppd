@@ -1611,7 +1611,7 @@ function audio.update(dt, car, rival, rivalDistance, who)
   local speed = car:getSpeed()
   local slide, offRoad = 0, 0
   for _, w in ipairs(model.wheels) do
-    slide = math.max(slide, w.surface == "asphalt" and math.max(w.slide, math.max(0, w.spin) / 14) or 0)
+    slide = math.max(slide, (w.surface == "asphalt" or w.surface == "rubber") and math.max(w.slide, math.max(0, w.spin) / 14) or 0)
     if w.surface == "grass" or w.surface == "gravel" then offRoad = offRoad + 0.25 end
     if w.surface == "kerb" then offRoad = offRoad + 0.1 end
   end

@@ -174,7 +174,19 @@ function rm.commitRecords()
     if view.bestLapTime and view.bestLapFrames and #view.bestLapFrames >= 6 then
       local hue = (i == 2) and settings.hue2 or settings.hue
       local driver = i == 1 and account.driver() or nil
-      local driverName = (driver and driver.name) or view.car.name
+      local customName = i == 1 and settings.driverName() or nil
+      local driverName
+      if session.split then
+        driverName = view.car.name
+      elseif i == 1 then
+        if customName and customName ~= "PLAYER" then
+          driverName = customName
+        else
+          driverName = (driver and driver.name) or customName or view.car.name
+        end
+      else
+        driverName = view.car.name
+      end
       local saved = settings.submitLap(
         entry.name,
         view.car.spec.id,
@@ -207,7 +219,8 @@ function rm.start(opts)
     online = opts.online,
     rules = opts.rules,
     player2 = player2,
-    playerName = player2 and opts.playerName or nil,
+    playerName = opts.playerName or (player2 and "P1" or settings.driverName()),
+    mixCategories = opts.mixCategories,
     lot = opts.mode == "freestyle" and not opts.demo,
     manualGearbox = settings.gearbox == "manual",
     onLap = function(car, time, clean) rm.onLap(car, time, clean) end,
@@ -547,7 +560,8 @@ local function handleControls(view)
     car.highBeam = not car.highBeam
   end
   if hands:consume("camera") then
-    settings.camera = settings.camera == "chase" and "fixed" or "chase"
+    local nextCam = { top = "fixed", fixed = "chase", chase = "top" }
+    settings.camera = nextCam[settings.camera] or "top"
     settings.save()
   end
   if hands:consume("respawn") and race.phase == "racing" and not car.finished and not car.wreck then
@@ -705,15 +719,17 @@ local function syncView(view, blend)
   end
   local _, _, sw, sh = viewRect(view.index, fullW, fullH)
   local base = math.min(fullW / 1280, fullH / 720) * (session.split and SPLIT_ZOOM or 1)
-  local framing = ZOOM[settings.zoom] or ZOOM.near
+  local topView = settings.camera == "top"
+  local framing = ZOOM[settings.zoom] or ZOOM.far
   local speedFade = math.min(1, speed / 85)
   local targetZoom = base * framing.close * (1 - framing.pullBack * speedFade)
+  if topView then targetZoom = targetZoom * 0.58 end
 
   -- The camera breathes with the car: it falls back under power and leans
   -- in under braking, and boost throws it back further.
   local model = car.model
   local surge = math.max(-1, math.min(1, model.ax / 10))
-  targetZoom = targetZoom * (1 - surge * 0.05)
+  targetZoom = targetZoom * (1 - surge * (topView and 0.025 or 0.05))
   if model.boostState == "active" then targetZoom = targetZoom * 0.86 end
   cam.zoom = cam.zoom + (targetZoom - cam.zoom) * blend * 1.1
 
@@ -729,6 +745,9 @@ local function syncView(view, blend)
     local side = -math.max(-1, math.min(1, model.ay / 11)) * sw * 0.035 / cam.zoom
     local ca, sa = math.cos(a), math.sin(a)
     lookX, lookY = ca * fwd - sa * side, sa * fwd + ca * side
+  elseif topView then
+    local vx, vy = car.body:getLinearVelocity()
+    lookX, lookY = vx * 0.55, vy * 0.55
   else
     local vx, vy = car.body:getLinearVelocity()
     lookX, lookY = vx * 0.3, vy * 0.3

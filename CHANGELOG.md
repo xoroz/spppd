@@ -1,5 +1,26 @@
 # Changelog
 
+## 3.6.0 (2026-11-20) — Version edited by XOROZ
+
+### Cars & Categories
+- Curated garage down to **6 cars** across two distinct classes (**ROAD** and **RACE**):
+  - **ROAD**: `HOT HATCH` (FWD), `ROCKET` (RWD), and the new `PANAME` (AWD — Porsche Panamera GTS 976: 4.0L twin-turbo V8, 500 PS, 2104 kg, 0-100 km/h in 3.8 s, 302 km/h).
+  - **RACE**: `FORMULA KID` (Tatuus T-318 F3 — soft slick tyres, huge grip), `PURSA GT3` (AWD Porsche 911 GT3 RS 992 specs), and `FORMULA 1 1988` (McLaren MP4/4 — 540 kg, 685 hp twin-turbo V6, extreme downforce).
+- Race cars are substantially faster than Road cars and do not mix categories by default (`MIX CLASSES` toggle in Race setup).
+- Redesigned car cards to show **Category**, **Max Speed**, drivetrain, and clean **1 to 5 star** ratings for Speed, Accel, Brake, Handling, and Tires.
+
+### Tracks, Rubber & Brake Markers
+- Kept only the **9 real circuits** with country flags & palettes: Mugello GP, Imola, Barcelona, Spielberg, Monza, Brands Hatch, Interlagos, Austin, and Monaco.
+- Added **3-2-1 brake reference markers** (300 m, 200 m, 100 m) inside the track map along the outside edge before major braking zones.
+- Added a **rubbered-in racing line**: visibly darker groove along the ideal racing line with much higher tyre grip, rewarding proper corner entry positioning.
+
+### Camera, Ghosts, Player Name & UI
+- Added new **TOP** camera mode (higher, fixed top-down view with forward look-ahead) and set it as the default camera.
+- **Ghost** loading now defaults to **ON** (`#1` fastest lap for the track when available).
+- Added editable **PLAYER NAME** in Settings and Race/Time Trial Setup; saved on local/central lap records and ghosts.
+- Added an in-game **CHANGELOG** viewer in the main menu and updated **CREDITS** with `Version edited by XOROZ`.
+- Faster parallel test suite with cached track builds and focused 6-car / 9-circuit coverage.
+
 ## 3.5.0 (2026-11-09)
 
 3.5.0 races 3.0 to 3.4. No server change.

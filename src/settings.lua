@@ -4,8 +4,8 @@ local SERVER_PORT = 8080  -- when the address doesn't name one
 
 local settings = {
   assists = "arcade",
-  camera = "chase",
-  zoom = "near",
+  camera = "top",
+  zoom = "far",
   units = "kmh",
   gearbox = "auto",
   volume = 0.8,
@@ -29,10 +29,11 @@ local settings = {
   padButtons = {},
   tuneHorn = false,  -- cheat codes, see src/cheats.lua
   neon = false,
+  playerName = "PLAYER",
 
   -- Last race setup
   mode = "race",
-  track = "mirage",
+  track = "mugello",
   freestyleTrack = "lot",  -- or any track's name
   car = 1,
   hue = 1,
@@ -41,12 +42,13 @@ local settings = {
   difficulty = "pro",
   time = "day",
   trialRules = "open",  -- or "clean": see Race.new
+  mixCategories = false, -- keep ROAD and RACE separate by default
   players = 1,       -- 2 splits the screen, with a pad for the second
   car2 = 2,          -- the second driver's car, paint, handling and gearbox
   hue2 = 1,
   assists2 = "arcade",
   gearbox2 = "auto",
-  selectedGhost = 0, -- 0 = OFF, 1..5 = top 5 ghost slot for current track
+  selectedGhost = 1, -- 0 = OFF, 1..5 = top 5 ghost slot for current track (default ON)
 
   server = SERVER,
   scoreUrl = "https://apps.texngo.it/spppd/api/records",
@@ -514,6 +516,12 @@ function settings.requestSync()
   settings.pollSync()
 end
 
+function settings.driverName()
+  local raw = tostring(settings.playerName or ""):gsub("^%s+", ""):gsub("%s+$", ""):upper()
+  raw = raw:gsub("[^%w_%- ]", ""):sub(1, 12)
+  return raw ~= "" and raw or "PLAYER"
+end
+
 function settings.load()
   local data = loadTable(FILE)
   if data then
@@ -523,8 +531,20 @@ function settings.load()
   end
   -- FULL was replaced by ARCADE as the easiest handling tier.
   if settings.assists == "full" then settings.assists = "arcade" end
-  -- MIRAGE replaced LUSAIL. Best laps stay under the old name: it was another road.
-  if settings.track == "lusail" then settings.track = "mirage" end
+  if settings.camera ~= "top" and settings.camera ~= "fixed" and settings.camera ~= "chase" then
+    settings.camera = "top"
+  end
+  -- Migrate removed fictional tracks to Mugello.
+  local okCat, catalog = pcall(require, "src/tracks/catalog")
+  if okCat and catalog and not catalog.find(settings.track) then
+    settings.track = "mugello"
+  end
+  local okGar, garage = pcall(require, "src/entities/garage")
+  if okGar and garage and #garage > 0 then
+    settings.car = math.max(1, math.min(#garage, math.floor(tonumber(settings.car) or 1)))
+    settings.car2 = math.max(1, math.min(#garage, math.floor(tonumber(settings.car2) or 2)))
+  end
+  settings.playerName = settings.driverName()
   records = loadTable(RECORDS) or {}
   settings.requestSync()
 end
@@ -655,7 +675,7 @@ function settings.submitLap(trackName, carId, time, ghost, rules, extra)
   local key = recordKey(trackName, carId, rules)
   local current = records[key]
   local hue = extra and extra.hue or settings.hue or 1
-  local name = extra and extra.name or "YOU"
+  local name = (extra and extra.name and extra.name ~= "" and extra.name) or settings.driverName()
   local isCarRecord = not current or current.time > time
   if isCarRecord then
     records[key] = { time = time, ghost = ghost, car = carId, hue = hue, name = name }

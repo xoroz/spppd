@@ -3,6 +3,7 @@ local base = require("src/entities/vehicles/base")
 return base.define({
   id = "hot_hatch",
   name = "HOT HATCH",
+  category = "road",
   blurb = "Light, friendly, front driven. The best car to learn in.",
   bodyStyle = "hatch",
   color = { 0.93, 0.93, 0.95 },

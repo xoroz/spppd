@@ -1,30 +1,30 @@
--- The selectable cars, in menu order. Settings save a position in this list,
--- so new cars go on the end.
+-- The 6 selectable cars, in menu order (3 ROAD + 3 RACE).
+-- XOROZ edition: race and road categories stay separated by default.
 local garage = {
   require("src/entities/vehicles/hot_hatch"),
-  require("src/entities/vehicles/4wd_monster"),
   require("src/entities/vehicles/rocket"),
-  require("src/entities/vehicles/samurai"),
-  require("src/entities/vehicles/big_bull"),
-  require("src/entities/vehicles/muscle_monster"),
-  require("src/entities/vehicles/cyber"),
-  require("src/entities/vehicles/tofu_runner"),
-  require("src/entities/vehicles/wedge"),
-  require("src/entities/vehicles/quad_turbo"),
-  require("src/entities/vehicles/baja_beast"),
-  require("src/entities/vehicles/open_wheeler"),
-  require("src/entities/vehicles/gt_racer"),
-  require("src/entities/vehicles/rally_king"),
-  require("src/entities/vehicles/prototype"),
-  require("src/entities/vehicles/drift_king"),
-  require("src/entities/vehicles/tatus"),
+  require("src/entities/vehicles/paname"),
+  require("src/entities/vehicles/formula_kid"),
+  require("src/entities/vehicles/pursa_gt3"),
+  require("src/entities/vehicles/formula_1_1988"),
 }
+
+garage.CATEGORIES = { "road", "race" }
+garage.CATEGORY_NAMES = { road = "ROAD", race = "RACE" }
 
 function garage.byId(id)
   for _, spec in ipairs(garage) do
     if spec.id == id then return spec end
   end
   return garage[1]
+end
+
+function garage.byCategory(category)
+  local out = {}
+  for _, spec in ipairs(garage) do
+    if spec.category == category then out[#out + 1] = spec end
+  end
+  return #out > 0 and out or garage
 end
 
 return garage

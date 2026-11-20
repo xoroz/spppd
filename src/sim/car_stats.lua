@@ -13,11 +13,11 @@ local TIER = "sport"
 -- Where each measure scores 0 and 1. Fixed rather than taken from the garage,
 -- so a new car doesn't change the others' bars.
 stats.RANGES = {
-  speed = { 180, 380 },     -- top speed, km/h
-  accel = { 8.5, 2.0 },     -- 0-100 km/h, s
-  brake = { 50, 28 },       -- 100-0 km/h, m
-  handling = { 0.76, 1.04 }, -- slalom at 90 km/h: mean yaw rate, rad/s
-  tires = { 0.95, 1.3 },    -- steady cornering, g
+  speed = { 255, 335 },     -- top speed, km/h
+  accel = { 4.8, 2.7 },     -- 0-100 km/h, s
+  brake = { 36, 26 },       -- 100-0 km/h, m
+  handling = { 0.80, 1.05 }, -- slalom at 90 km/h: mean yaw rate, rad/s
+  tires = { 1.10, 1.42 },   -- steady cornering, g
 }
 stats.ORDER = { "speed", "accel", "brake", "handling", "tires" }
 stats.LABELS = { speed = "SPEED", accel = "ACCEL", brake = "BRAKE", handling = "HANDLING", tires = "TIRES" }
@@ -122,7 +122,8 @@ function stats.of(spec)
   done = {}
   for _, key in ipairs(stats.ORDER) do
     local s = score(key, raw[key])
-    done[key] = { value = raw[key], score = s, text = texts[key] or string.format("%d/10", math.floor(s * 10 + 0.5)) }
+    local stars = math.max(1, math.min(5, math.floor(s * 4 + 1.5)))
+    done[key] = { value = raw[key], score = s, stars = stars, text = texts[key] or string.format("%d/5", stars) }
   end
   cache[spec] = done
   return done

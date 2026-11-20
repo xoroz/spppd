@@ -3,6 +3,7 @@ local base = require("src/entities/vehicles/base")
 return base.define({
   id = "rocket",
   name = "ROCKET",
+  category = "road",
   blurb = "Rear engined and very fast. The tail will bite if you let it.",
   bodyStyle = "coupe",
   color = { 0.95, 0.72, 0.1 },
